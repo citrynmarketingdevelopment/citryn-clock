@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 function secondsToClock(seconds) {
@@ -20,6 +20,16 @@ function formatTime(value) {
   });
 }
 
+function sessionLabel(session) {
+  return session.type === "BREAK" ? "Break" : "Work";
+}
+
+function formatSessionRange(session) {
+  const start = formatTime(session.startAt);
+  const end = session.endAt ? formatTime(session.endAt) : "In progress";
+  return `${start} - ${end}`;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -32,7 +42,7 @@ export default function AdminPage() {
     password: "",
   });
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setError(null);
     const meRes = await fetch("/api/me", { cache: "no-store" });
     if (!meRes.ok) {
@@ -53,11 +63,11 @@ export default function AdminPage() {
       return;
     }
     setEmployees(tsData.employeeTimesheets);
-  }
+  }, [router]);
 
   useEffect(() => {
     loadData().catch(() => setError("Unable to load admin view."));
-  }, []);
+  }, [loadData]);
 
   async function onCreateUser(event) {
     event.preventDefault();
@@ -166,8 +176,9 @@ export default function AdminPage() {
                       <th>Date</th>
                       <th>Clock In</th>
                       <th>Clock Out</th>
-                      <th>Worked</th>
+                      <th>Total Worked</th>
                       <th>Break</th>
+                      <th>Session Timeline</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -178,6 +189,20 @@ export default function AdminPage() {
                         <td>{formatTime(summary.lastClockOut)}</td>
                         <td>{secondsToClock(summary.workedSeconds)}</td>
                         <td>{secondsToClock(summary.breakSeconds)}</td>
+                        <td>
+                          {summary.sessions?.length ? (
+                            <div className="session-list">
+                              {summary.sessions.map((session, index) => (
+                                <div key={`${summary.day}-${session.type}-${session.startAt}-${index}`} className="session-item">
+                                  <span className="session-type">{sessionLabel(session)}</span>
+                                  <span className="session-range">{formatSessionRange(session)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="muted">No sessions</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

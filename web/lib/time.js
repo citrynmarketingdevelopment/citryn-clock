@@ -13,6 +13,17 @@ function diffSeconds(a, b) {
   return Math.max(0, Math.floor((b.getTime() - a.getTime()) / 1000));
 }
 
+function buildSession(type, startAt, endAt = null) {
+  const closed = startAt && endAt;
+  return {
+    type,
+    startAt: startAt ? startAt.toISOString() : null,
+    endAt: endAt ? endAt.toISOString() : null,
+    durationSeconds: closed ? diffSeconds(startAt, endAt) : 0,
+    isOpen: !closed,
+  };
+}
+
 export function deriveWorkStatus(events) {
   let status = "OUT";
 
@@ -46,6 +57,7 @@ export function summarizeDay(day, events) {
   let lastBreakStart = null;
   let firstClockIn = null;
   let lastClockOut = null;
+  const sessions = [];
 
   for (const event of sorted) {
     if (event.type === ClockEventType.CLOCK_IN) {
@@ -58,14 +70,18 @@ export function summarizeDay(day, events) {
     }
 
     if (event.type === ClockEventType.BREAK_START && lastWorkStart) {
-      workedSeconds += diffSeconds(lastWorkStart, event.occurredAt);
+      const workSession = buildSession("WORK", lastWorkStart, event.occurredAt);
+      workedSeconds += workSession.durationSeconds;
+      sessions.push(workSession);
       lastWorkStart = null;
       lastBreakStart = event.occurredAt;
       continue;
     }
 
     if (event.type === ClockEventType.BREAK_END && lastBreakStart) {
-      breakSeconds += diffSeconds(lastBreakStart, event.occurredAt);
+      const breakSession = buildSession("BREAK", lastBreakStart, event.occurredAt);
+      breakSeconds += breakSession.durationSeconds;
+      sessions.push(breakSession);
       lastBreakStart = null;
       lastWorkStart = event.occurredAt;
       continue;
@@ -73,15 +89,26 @@ export function summarizeDay(day, events) {
 
     if (event.type === ClockEventType.CLOCK_OUT) {
       if (lastWorkStart) {
-        workedSeconds += diffSeconds(lastWorkStart, event.occurredAt);
+        const workSession = buildSession("WORK", lastWorkStart, event.occurredAt);
+        workedSeconds += workSession.durationSeconds;
+        sessions.push(workSession);
       }
       if (lastBreakStart) {
-        breakSeconds += diffSeconds(lastBreakStart, event.occurredAt);
+        const breakSession = buildSession("BREAK", lastBreakStart, event.occurredAt);
+        breakSeconds += breakSession.durationSeconds;
+        sessions.push(breakSession);
       }
       lastWorkStart = null;
       lastBreakStart = null;
       lastClockOut = event.occurredAt.toISOString();
     }
+  }
+
+  const status = deriveWorkStatus(sorted);
+  if (status === "WORKING" && lastWorkStart) {
+    sessions.push(buildSession("WORK", lastWorkStart));
+  } else if (status === "ON_BREAK" && lastBreakStart) {
+    sessions.push(buildSession("BREAK", lastBreakStart));
   }
 
   return {
@@ -92,7 +119,8 @@ export function summarizeDay(day, events) {
     breakSeconds,
     workedMinutes: Math.floor(workedSeconds / 60),
     breakMinutes: Math.floor(breakSeconds / 60),
-    status: deriveWorkStatus(sorted),
+    status,
+    sessions,
   };
 }
 
