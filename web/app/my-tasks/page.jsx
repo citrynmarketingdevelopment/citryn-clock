@@ -29,28 +29,33 @@ export default function MyTasksPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [tasks, setTasks] = useState([]);
+  const [loadingBoard, setLoadingBoard] = useState(true);
   const [activeTask, setActiveTask] = useState(null);
   const [error, setError] = useState(null);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
 
   const loadData = useCallback(async () => {
+    setLoadingBoard(true);
     setError(null);
+    try {
+      const meRes = await fetch("/api/me", { cache: "no-store" });
+      if (!meRes.ok) {
+        router.push("/login");
+        return;
+      }
+      const meData = await meRes.json();
+      setUser(meData.user);
 
-    const meRes = await fetch("/api/me", { cache: "no-store" });
-    if (!meRes.ok) {
-      router.push("/login");
-      return;
+      const tasksRes = await fetch("/api/tasks/my", { cache: "no-store" });
+      const tasksData = await tasksRes.json();
+      if (!tasksRes.ok) {
+        setError(tasksData.error ?? "Unable to load tasks.");
+        return;
+      }
+      setTasks(tasksData.tasks ?? []);
+    } finally {
+      setLoadingBoard(false);
     }
-    const meData = await meRes.json();
-    setUser(meData.user);
-
-    const tasksRes = await fetch("/api/tasks/my", { cache: "no-store" });
-    const tasksData = await tasksRes.json();
-    if (!tasksRes.ok) {
-      setError(tasksData.error ?? "Unable to load tasks.");
-      return;
-    }
-    setTasks(tasksData.tasks ?? []);
   }, [router]);
 
   useEffect(() => {
@@ -79,6 +84,34 @@ export default function MyTasksPage() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
     router.refresh();
+  }
+
+  function isTaskCompleted(task) {
+    return Boolean(task?.completedAt);
+  }
+
+  function mergeUpdatedTask(updatedTask) {
+    setTasks((current) => current.map((item) => (item.id === updatedTask.id ? { ...item, ...updatedTask } : item)));
+    setActiveTask((current) => (current?.id === updatedTask.id ? { ...current, ...updatedTask } : current));
+  }
+
+  async function updateTaskCompletion(taskId, completed) {
+    setError(null);
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.task) {
+        setError(data.error ?? "Unable to update task.");
+        return;
+      }
+      mergeUpdatedTask(data.task);
+    } catch {
+      setError("Unable to update task.");
+    }
   }
 
   function moveWeek(deltaDays) {
@@ -146,33 +179,60 @@ export default function MyTasksPage() {
           </div>
         </header>
 
-        <section className="mytasks-calendar">
-          {weekDays.map((day) => {
-            const key = dayKey(day);
-            const dayTasks = scheduledByDay.get(key) ?? [];
-            return (
-              <article key={key} className={`mytasks-day ${key === todayKey ? "today" : ""}`}>
+        {loadingBoard ? (
+          <section className="mytasks-calendar">
+            {Array.from({ length: 7 }).map((_, index) => (
+              <article key={`mytasks-skeleton-${index}`} className="mytasks-day skeleton">
                 <div className="mytasks-day-head">
-                  <span className="mytasks-day-name">{WEEKDAY_SHORT[day.getDay()]}</span>
-                  <span className="mytasks-day-date">{day.getDate()}</span>
+                  <div className="skeleton-block skeleton-shimmer" style={{ width: 34, height: 10 }} />
+                  <div className="skeleton-block skeleton-shimmer" style={{ width: 22, height: 28, marginTop: 8 }} />
                 </div>
                 <div className="mytasks-day-list">
-                  {dayTasks.length === 0 ? <p className="mytasks-empty">No tasks</p> : null}
-                  {dayTasks.map((task) => (
-                    <button
-                      key={task.id}
-                      type="button"
-                      className={`mytasks-task ${priorityClass(task.priority)}`}
-                      onClick={() => setActiveTask(task)}
-                    >
-                      <strong>{task.title}</strong>
-                    </button>
+                  {Array.from({ length: 3 }).map((__, itemIndex) => (
+                    <div key={`mytasks-skeleton-card-${index}-${itemIndex}`} className="mytasks-task skeleton">
+                      <div className="mytasks-task-head">
+                        <div className="skeleton-block skeleton-shimmer" style={{ width: "65%", height: 14 }} />
+                        <div className="skeleton-block skeleton-shimmer" style={{ width: 66, height: 18, borderRadius: 999 }} />
+                      </div>
+                    </div>
                   ))}
                 </div>
               </article>
-            );
-          })}
-        </section>
+            ))}
+          </section>
+        ) : (
+          <section className="mytasks-calendar">
+            {weekDays.map((day) => {
+              const key = dayKey(day);
+              const dayTasks = scheduledByDay.get(key) ?? [];
+              return (
+                <article key={key} className={`mytasks-day ${key === todayKey ? "today" : ""}`}>
+                  <div className="mytasks-day-head">
+                    <span className="mytasks-day-name">{WEEKDAY_SHORT[day.getDay()]}</span>
+                    <span className="mytasks-day-date">{day.getDate()}</span>
+                  </div>
+                  <div className="mytasks-day-list">
+                    {dayTasks.length === 0 ? <p className="mytasks-empty">No tasks</p> : null}
+                    {dayTasks.map((task) => (
+                      <button
+                        key={task.id}
+                        type="button"
+                        className={`mytasks-task ${priorityClass(task.priority)} ${isTaskCompleted(task) ? "completed" : ""}`}
+                        onClick={() => setActiveTask(task)}
+                      >
+                        <div className="mytasks-task-head">
+                          <strong>{task.title}</strong>
+                          <span className={`task-priority-chip ${task.priority.toLowerCase()}`}>{task.priority}</span>
+                        </div>
+                        {isTaskCompleted(task) ? <span className="task-done-note">Completed</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        )}
 
         {activeTask ? (
           <div className="taskview-backdrop" onClick={() => setActiveTask(null)}>
@@ -185,12 +245,29 @@ export default function MyTasksPage() {
             >
               <header className="taskview-header">
                 <h2>{activeTask.title}</h2>
-                <button type="button" className="taskview-close" onClick={() => setActiveTask(null)}>
-                  Close
-                </button>
+                <div className="taskview-header-actions">
+                  <button
+                    type="button"
+                    className={isTaskCompleted(activeTask) ? "secondary" : ""}
+                    onClick={() => updateTaskCompletion(activeTask.id, !isTaskCompleted(activeTask))}
+                  >
+                    {isTaskCompleted(activeTask) ? "Mark as undone" : "Mark complete"}
+                  </button>
+                  <button type="button" className="taskview-close" onClick={() => setActiveTask(null)}>
+                    Close
+                  </button>
+                </div>
               </header>
 
               <div className="taskview-grid">
+                <div className="taskview-row">
+                  <span>Status</span>
+                  <strong>
+                    {isTaskCompleted(activeTask)
+                      ? `Completed${activeTask.completedAt ? ` on ${new Date(activeTask.completedAt).toLocaleString()}` : ""}`
+                      : "Open"}
+                  </strong>
+                </div>
                 <div className="taskview-row">
                   <span>Project</span>
                   <strong>{activeTask.project?.name || "-"}</strong>

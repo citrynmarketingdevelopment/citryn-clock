@@ -25,6 +25,7 @@ function toTaskPayload(task) {
     laborMinutes: task.laborMinutes,
     priority: task.priority,
     dueDate: task.dueDate,
+    completedAt: task.completedAt,
     createdById: task.createdById,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

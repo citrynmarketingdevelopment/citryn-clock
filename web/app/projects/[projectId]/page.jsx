@@ -43,7 +43,9 @@ export default function ProjectBoardPage() {
   const [project, setProject] = useState(null);
   const [users, setUsers] = useState([]);
   const [error, setError] = useState(null);
+  const [loadingBoard, setLoadingBoard] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [updatingTask, setUpdatingTask] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const [activeTask, setActiveTask] = useState(null);
   const [assigneeQuery, setAssigneeQuery] = useState("");
@@ -58,39 +60,45 @@ export default function ProjectBoardPage() {
     assigneeUserIds: [],
   });
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (showSkeleton = true) => {
+    if (showSkeleton) {
+      setLoadingBoard(true);
+    }
     setError(null);
+    try {
+      const meRes = await fetch("/api/me", { cache: "no-store" });
+      if (!meRes.ok) {
+        router.push("/login");
+        return;
+      }
+      const meData = await parseJsonSafe(meRes);
+      setUser(meData.user);
 
-    const meRes = await fetch("/api/me", { cache: "no-store" });
-    if (!meRes.ok) {
-      router.push("/login");
-      return;
+      const [projectRes, usersRes] = await Promise.all([
+        fetch(`/api/projects/${projectId}`, { cache: "no-store" }),
+        fetch("/api/users", { cache: "no-store" }),
+      ]);
+      const projectData = await parseJsonSafe(projectRes);
+      const usersData = await parseJsonSafe(usersRes);
+
+      if (!projectRes.ok) {
+        setError(projectData.error ?? "Unable to load project.");
+        return;
+      }
+      if (!usersRes.ok) {
+        setError(usersData.error ?? "Unable to load users.");
+        return;
+      }
+
+      setProject(projectData.project);
+      setUsers(usersData.users ?? []);
+      setForm((current) => ({
+        ...current,
+        columnId: projectData.project.columns?.[0]?.id ?? "",
+      }));
+    } finally {
+      setLoadingBoard(false);
     }
-    const meData = await parseJsonSafe(meRes);
-    setUser(meData.user);
-
-    const [projectRes, usersRes] = await Promise.all([
-      fetch(`/api/projects/${projectId}`, { cache: "no-store" }),
-      fetch("/api/users", { cache: "no-store" }),
-    ]);
-    const projectData = await parseJsonSafe(projectRes);
-    const usersData = await parseJsonSafe(usersRes);
-
-    if (!projectRes.ok) {
-      setError(projectData.error ?? "Unable to load project.");
-      return;
-    }
-    if (!usersRes.ok) {
-      setError(usersData.error ?? "Unable to load users.");
-      return;
-    }
-
-    setProject(projectData.project);
-    setUsers(usersData.users ?? []);
-    setForm((current) => ({
-      ...current,
-      columnId: projectData.project.columns?.[0]?.id ?? "",
-    }));
   }, [projectId, router]);
 
   useEffect(() => {
@@ -153,6 +161,43 @@ export default function ProjectBoardPage() {
     setActiveTask(null);
   }
 
+  function isTaskCompleted(task) {
+    return Boolean(task?.completedAt);
+  }
+
+  function mergeUpdatedTask(updatedTask) {
+    setProject((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        tasks: (current.tasks ?? []).map((item) => (item.id === updatedTask.id ? updatedTask : item)),
+      };
+    });
+    setActiveTask((current) => (current?.id === updatedTask.id ? updatedTask : current));
+  }
+
+  async function updateTaskCompletion(taskId, completed) {
+    setUpdatingTask(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed }),
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok || !data.task) {
+        setError(data.error ?? "Unable to update task.");
+        return;
+      }
+      mergeUpdatedTask(data.task);
+    } catch {
+      setError("Unable to update task.");
+    } finally {
+      setUpdatingTask(false);
+    }
+  }
+
   async function onCreateTask(event) {
     event.preventDefault();
     setSaving(true);
@@ -198,7 +243,7 @@ export default function ProjectBoardPage() {
         assigneeUserIds: [],
       }));
       closeComposer();
-      await loadData();
+      await loadData(false);
     } catch {
       setError("Unable to create task.");
     } finally {
@@ -421,12 +466,34 @@ export default function ProjectBoardPage() {
             >
               <header className="taskview-header">
                 <h2>{activeTask.title}</h2>
-                <button type="button" className="taskview-close" onClick={closeTaskDetails}>
-                  Close
-                </button>
+                <div className="taskview-header-actions">
+                  <button
+                    type="button"
+                    className={isTaskCompleted(activeTask) ? "secondary" : ""}
+                    disabled={updatingTask}
+                    onClick={() => updateTaskCompletion(activeTask.id, !isTaskCompleted(activeTask))}
+                  >
+                    {updatingTask
+                      ? "Saving..."
+                      : isTaskCompleted(activeTask)
+                        ? "Mark as undone"
+                        : "Mark complete"}
+                  </button>
+                  <button type="button" className="taskview-close" onClick={closeTaskDetails}>
+                    Close
+                  </button>
+                </div>
               </header>
 
               <div className="taskview-grid">
+                <div className="taskview-row">
+                  <span>Status</span>
+                  <strong>
+                    {isTaskCompleted(activeTask)
+                      ? `Completed${activeTask.completedAt ? ` on ${new Date(activeTask.completedAt).toLocaleString()}` : ""}`
+                      : "Open"}
+                  </strong>
+                </div>
                 <div className="taskview-row">
                   <span>Due date</span>
                   <strong>{activeTask.dueDate ? new Date(activeTask.dueDate).toLocaleDateString() : "No date"}</strong>
@@ -461,44 +528,76 @@ export default function ProjectBoardPage() {
           </div>
         ) : null}
 
-        <section className="projectboard-lanes-wrap">
-          <div className="projectboard-lanes">
-            {(project?.columns ?? []).map((column) => {
-              const tasks = taskMap.get(column.id) ?? [];
-              return (
-                <div key={column.id} className="projectboard-lane">
+        {loadingBoard ? (
+          <section className="projectboard-lanes-wrap">
+            <div className="projectboard-lanes">
+              {Array.from({ length: 4 }).map((_, laneIndex) => (
+                <div key={`skeleton-lane-${laneIndex}`} className="projectboard-lane skeleton">
                   <header className="projectboard-lane-head">
-                    <h3>{column.name}</h3>
-                    <span>{tasks.length}</span>
+                    <div className="skeleton-block skeleton-shimmer" style={{ width: "40%", height: 20 }} />
+                    <div className="skeleton-block skeleton-shimmer" style={{ width: 18, height: 18, borderRadius: 999 }} />
                   </header>
-
                   <div className="projectboard-lane-stack">
-                    {tasks.map((task) => (
-                      <button
-                        key={task.id}
-                        type="button"
-                        className={`projectboard-card priority-${task.priority.toLowerCase()}`}
-                        onClick={() => openTaskDetails(task)}
-                      >
-                        <div className="projectboard-card-title">{task.title}</div>
-                      </button>
+                    {Array.from({ length: 4 }).map((__, cardIndex) => (
+                      <div key={`skeleton-card-${laneIndex}-${cardIndex}`} className="projectboard-card skeleton">
+                        <div className="projectboard-card-head">
+                          <div className="skeleton-block skeleton-shimmer" style={{ width: "62%", height: 16 }} />
+                          <div className="skeleton-block skeleton-shimmer" style={{ width: 68, height: 18, borderRadius: 999 }} />
+                        </div>
+                      </div>
                     ))}
                   </div>
-
-                  <button
-                    type="button"
-                    className="projectboard-lane-add"
-                    onClick={() => {
-                      openComposer(column.id);
-                    }}
-                  >
-                    + Add task
-                  </button>
+                  <div className="projectboard-lane-add">
+                    <div className="skeleton-block skeleton-shimmer" style={{ width: 88, height: 14 }} />
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        ) : (
+          <section className="projectboard-lanes-wrap">
+            <div className="projectboard-lanes">
+              {(project?.columns ?? []).map((column) => {
+                const tasks = taskMap.get(column.id) ?? [];
+                return (
+                  <div key={column.id} className="projectboard-lane">
+                    <header className="projectboard-lane-head">
+                      <h3>{column.name}</h3>
+                      <span>{tasks.length}</span>
+                    </header>
+
+                    <div className="projectboard-lane-stack">
+                      {tasks.map((task) => (
+                        <button
+                          key={task.id}
+                          type="button"
+                          className={`projectboard-card priority-${task.priority.toLowerCase()} ${isTaskCompleted(task) ? "completed" : ""}`}
+                          onClick={() => openTaskDetails(task)}
+                        >
+                          <div className="projectboard-card-head">
+                            <div className="projectboard-card-title">{task.title}</div>
+                            <span className={`task-priority-chip ${task.priority.toLowerCase()}`}>{task.priority}</span>
+                          </div>
+                          {isTaskCompleted(task) ? <div className="task-done-note">Completed</div> : null}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="projectboard-lane-add"
+                      onClick={() => {
+                        openComposer(column.id);
+                      }}
+                    >
+                      + Add task
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {error ? <p className="error space-top">{error}</p> : null}
       </section>

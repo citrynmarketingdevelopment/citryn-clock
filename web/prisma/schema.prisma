@@ -109,6 +109,7 @@ model Task {
   laborMinutes Int
   priority    TaskPriority     @default(MEDIUM)
   dueDate     DateTime?
+  completedAt DateTime?
   createdById String
   project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   column      ProjectColumn?   @relation(fields: [columnId], references: [id], onDelete: SetNull)
@@ -119,6 +120,7 @@ model Task {
 
   @@index([projectId, createdAt])
   @@index([dueDate])
+  @@index([completedAt])
 }
 
 model TaskAssignment {

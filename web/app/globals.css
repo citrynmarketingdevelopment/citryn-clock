@@ -35,6 +35,30 @@ body {
     linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
 }
 
+.skeleton {
+  pointer-events: none;
+}
+
+.skeleton-block {
+  display: block;
+  border-radius: 8px;
+  background: #353d4f;
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(171, 188, 219, 0.18) 48%, transparent 100%);
+  animation: skeleton-wave 0.9s ease-in-out infinite;
+}
+
 .ws-shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
@@ -318,6 +342,13 @@ body {
   color: inherit;
 }
 
+.mytasks-task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .mytasks-task strong {
   color: #f7f9fd;
   display: block;
@@ -352,6 +383,12 @@ body {
 
 .mytasks-task.urgent {
   border-left: 4px solid #ff7d7d;
+}
+
+.mytasks-task.completed {
+  background: #1b212c;
+  border-color: #394254;
+  opacity: 0.72;
 }
 
 .mytasks-empty {
@@ -638,17 +675,19 @@ body {
   z-index: 120;
   background: rgba(8, 11, 18, 0.72);
   backdrop-filter: blur(4px);
-  display: grid;
-  place-items: center;
-  padding: 20px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
 }
 
 .projectboard-modal {
-  width: min(760px, 100%);
-  max-height: calc(100svh - 40px);
+  width: min(560px, 100%);
+  max-height: 100svh;
+  height: 100svh;
   overflow: hidden;
   border: 1px solid #3a4458;
-  border-radius: 16px;
+  border-radius: 16px 0 0 16px;
   background: linear-gradient(180deg, #1e232d 0%, #181d27 100%);
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
   display: flex;
@@ -844,6 +883,13 @@ body {
   color: inherit;
 }
 
+.projectboard-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .projectboard-card:hover,
 .mytasks-task:hover {
   transform: none;
@@ -895,6 +941,51 @@ body {
   border-left: 3px solid #ff8282;
 }
 
+.projectboard-card.completed {
+  background: #1b212c;
+  border-color: #3b4456;
+  opacity: 0.72;
+}
+
+.task-priority-chip {
+  border: 1px solid #3e485c;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #d5dced;
+  background: #242d3b;
+  text-transform: uppercase;
+}
+
+.task-priority-chip.low {
+  border-color: #4f7bb8;
+  color: #9bc3ff;
+}
+
+.task-priority-chip.medium {
+  border-color: #3f8a61;
+  color: #94e2b5;
+}
+
+.task-priority-chip.high {
+  border-color: #9a763f;
+  color: #f0cb8e;
+}
+
+.task-priority-chip.urgent {
+  border-color: #98505f;
+  color: #ffc0cb;
+}
+
+.task-done-note {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #9fb0cc;
+  text-transform: uppercase;
+}
+
 .projectboard-lane-add {
   margin-top: auto;
   border-top: 1px solid #313948;
@@ -912,17 +1003,19 @@ body {
   z-index: 130;
   background: rgba(8, 11, 18, 0.72);
   backdrop-filter: blur(4px);
-  display: grid;
-  place-items: center;
-  padding: 20px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
 }
 
 .taskview-modal {
-  width: min(760px, 100%);
-  max-height: calc(100svh - 40px);
+  width: min(560px, 100%);
+  max-height: 100svh;
+  height: 100svh;
   overflow-y: auto;
   border: 1px solid #3a4458;
-  border-radius: 16px;
+  border-radius: 16px 0 0 16px;
   background: linear-gradient(180deg, #1e232d 0%, #181d27 100%);
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
   padding: 16px;
@@ -941,6 +1034,12 @@ body {
 .taskview-header h2 {
   color: #f6f9ff;
   font-size: 1.45rem;
+}
+
+.taskview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .taskview-close {
@@ -996,7 +1095,6 @@ main {
   max-width: 1120px;
   margin: 0 auto;
   padding: 32px 22px 48px;
-  animation: page-in 450ms ease;
 }
 
 h1,
@@ -1891,17 +1989,6 @@ th {
   }
 }
 
-@keyframes page-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @keyframes pulse-glow {
   0%,
   100% {
@@ -1920,6 +2007,13 @@ th {
     transform: rotate(360deg);
   }
 }
+
+@keyframes skeleton-wave {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 
 @media (max-width: 920px) {
   .projectboard-top {
@@ -2097,5 +2191,12 @@ th {
 
   .track-session-right {
     text-align: left;
+  }
+
+  .projectboard-modal,
+  .taskview-modal {
+    width: 100%;
+    border-radius: 0;
+    border-right: 0;
   }
 }

@@ -10,6 +10,7 @@ function toTask(task) {
     laborMinutes: task.laborMinutes,
     priority: task.priority,
     dueDate: task.dueDate,
+    completedAt: task.completedAt,
     project: {
       id: task.project.id,
       name: task.project.name,
