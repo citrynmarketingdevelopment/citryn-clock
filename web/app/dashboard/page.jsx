@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import WorkspaceShell from "@/components/workspace-shell";
 
 const TARGET_WORK_SECONDS = 8 * 60 * 60;
 const WORKDAY_KEYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -122,7 +123,7 @@ export default function DashboardPage() {
   const [error, setError] = useState(null);
   const [loadingAction, setLoadingAction] = useState(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [viewMode, setViewMode] = useState("TIMESHEETS");
+  const [viewMode, setViewMode] = useState("TIMECLOCK");
 
   const loadData = useCallback(async () => {
     setError(null);
@@ -133,7 +134,7 @@ export default function DashboardPage() {
     }
     const meData = await meRes.json();
     if (meData.user.role !== "EMPLOYEE") {
-      router.push("/admin");
+      router.push("/timesheets");
       return;
     }
     setUser(meData.user);
@@ -236,7 +237,8 @@ export default function DashboardPage() {
   const weeklyBars = useMemo(() => filteredDays.slice(0, 7).reverse(), [filteredDays]);
 
   return (
-    <main className="track-shell">
+    <WorkspaceShell user={user} onLogout={logout}>
+      <section className="track-shell">
       <div className="track-bg-orb track-bg-orb-a" />
       <div className="track-bg-orb track-bg-orb-b" />
 
@@ -246,9 +248,6 @@ export default function DashboardPage() {
             <h1 className="track-title">Track Time</h1>
             <p className="track-subtitle">Desktop workspace</p>
           </div>
-          <button className="track-more-button" onClick={logout}>
-            Logout
-          </button>
         </div>
       </section>
 
@@ -469,6 +468,7 @@ export default function DashboardPage() {
       )}
 
       {error ? <p className="error space-top">{error}</p> : null}
-    </main>
+      </section>
+    </WorkspaceShell>
   );
 }

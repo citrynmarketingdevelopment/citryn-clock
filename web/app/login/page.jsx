@@ -30,9 +30,9 @@ export default function LoginPage() {
       }
 
       if (data.user.role === "ADMIN") {
-        router.push("/admin");
+        router.push("/timesheets");
       } else {
-        router.push("/dashboard");
+        router.push("/timeclock");
       }
       router.refresh();
     } catch {
@@ -75,4 +75,3 @@ export default function LoginPage() {
     </main>
   );
 }
-
