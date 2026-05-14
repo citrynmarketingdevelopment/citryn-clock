@@ -110,8 +110,8 @@ export default function MojosKitchenPage() {
       if (fileInput instanceof HTMLInputElement) {
         fileInput.value = "";
       }
-    } catch {
-      setError("Unable to upload video.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Upload failed. Please sign in again and retry.");
     } finally {
       setUploading(false);
     }
