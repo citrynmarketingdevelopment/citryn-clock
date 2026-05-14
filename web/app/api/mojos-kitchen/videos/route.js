@@ -48,7 +48,7 @@ export async function GET(request) {
 
   if (!hasKitchenModels()) {
     return NextResponse.json(
-      { error: "Mojo's Kitchen is not configured yet. Run prisma generate and prisma db push." },
+      { error: "Mojo's Kitchen models are missing in this deployment. Redeploy so prisma generate runs on build." },
       { status: 503 },
     );
   }
