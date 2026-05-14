@@ -43,6 +43,7 @@ model User {
   createdTasks         Task[]           @relation("TaskCreator")
   taskAssignments      TaskAssignment[] @relation("TaskAssignee")
   taskAssignmentsGiven TaskAssignment[] @relation("TaskAssignedBy")
+  kitchenVideos        KitchenVideo[]
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 }
@@ -135,4 +136,33 @@ model TaskAssignment {
 
   @@unique([taskId, userId])
   @@index([userId, assignedAt])
+}
+
+model KitchenVideo {
+  id               String               @id @default(cuid())
+  uploaderId       String
+  recipientEmail   String
+  title            String?
+  originalFileName String
+  fileUrl          String
+  shareToken       String               @unique
+  uploader         User                 @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  comments         KitchenVideoComment[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([uploaderId, createdAt])
+  @@index([shareToken])
+}
+
+model KitchenVideoComment {
+  id               String       @id @default(cuid())
+  kitchenVideoId   String
+  authorEmail      String
+  body             String
+  timestampSeconds Int
+  kitchenVideo     KitchenVideo @relation(fields: [kitchenVideoId], references: [id], onDelete: Cascade)
+  createdAt        DateTime     @default(now())
+
+  @@index([kitchenVideoId, createdAt])
 }

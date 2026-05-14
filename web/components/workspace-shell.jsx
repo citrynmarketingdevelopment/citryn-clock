@@ -22,6 +22,7 @@ export default function WorkspaceShell({ user, onLogout, children }) {
     { href: "/projects", label: "Projects" },
     { href: "/my-tasks", label: "My Tasks" },
     { href: "/timeclock", label: "Timeclock" },
+    { href: "/mojos-kitchen", label: "Mojo's Kitchen" },
   ];
 
   if (role === "ADMIN") {

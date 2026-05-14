@@ -13,11 +13,13 @@
   },
   "dependencies": {
     "@prisma/client": "^6.8.0",
+    "@vercel/blob": "^2.3.3",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "sendlayer": "^1.0.3",
     "zod": "^3.25.56"
   },
   "devDependencies": {
