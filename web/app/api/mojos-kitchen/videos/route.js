@@ -17,6 +17,10 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function isLikelyHttpUrl(value) {
+  return /^https?:\/\//i.test(value);
+}
+
 function toVideoResponse(video) {
   return {
     id: video.id,
@@ -88,49 +92,78 @@ export async function POST(request) {
 
   if (!hasKitchenModels()) {
     return NextResponse.json(
-      { error: "Mojo's Kitchen is not configured yet. Run prisma generate and prisma db push." },
+      { error: "Mojo's Kitchen models are missing in this deployment. Redeploy so prisma generate runs on build." },
       { status: 503 },
     );
   }
+  if (!isBlobConfigured()) {
+    return NextResponse.json({ error: "Blob storage is not configured. Set BLOB_READ_WRITE_TOKEN." }, { status: 503 });
+  }
 
   try {
-    const formData = await request.formData();
-    const video = formData.get("video");
-    const recipientEmail = String(formData.get("recipientEmail") || "").trim().toLowerCase();
-    const titleRaw = String(formData.get("title") || "").trim();
-    const title = titleRaw.length > 0 ? titleRaw.slice(0, 160) : null;
+    const contentType = request.headers.get("content-type") || "";
+    const isJsonRequest = contentType.includes("application/json");
 
-    if (!(video instanceof File)) {
-      return NextResponse.json({ error: "Video file is required." }, { status: 400 });
+    let title = null;
+    let recipientEmail = "";
+    let originalFileName = "";
+    let fileUrl = "";
+
+    if (isJsonRequest) {
+      const payload = await request.json();
+      recipientEmail = String(payload?.recipientEmail || "").trim().toLowerCase();
+      const titleRaw = String(payload?.title || "").trim();
+      title = titleRaw.length > 0 ? titleRaw.slice(0, 160) : null;
+      originalFileName = String(payload?.originalFileName || "").trim();
+      fileUrl = String(payload?.fileUrl || "").trim();
+    } else {
+      const formData = await request.formData();
+      const video = formData.get("video");
+      recipientEmail = String(formData.get("recipientEmail") || "").trim().toLowerCase();
+      const titleRaw = String(formData.get("title") || "").trim();
+      title = titleRaw.length > 0 ? titleRaw.slice(0, 160) : null;
+
+      if (!(video instanceof File)) {
+        return NextResponse.json({ error: "Video file is required." }, { status: 400 });
+      }
+      if (!video.type.startsWith("video/")) {
+        return NextResponse.json({ error: "Please upload a valid video file." }, { status: 400 });
+      }
+      if (video.size <= 0) {
+        return NextResponse.json({ error: "Video file is empty." }, { status: 400 });
+      }
+      if (video.size > MAX_VIDEO_BYTES) {
+        return NextResponse.json(
+          { error: "Video is too large. Max size is 250MB for this test page." },
+          { status: 400 },
+        );
+      }
+
+      const uploaded = await uploadPublicBlob({
+        namespace: "mojos-kitchen",
+        file: video,
+      });
+      originalFileName = video.name || uploaded.pathname;
+      fileUrl = uploaded.url;
     }
-    if (!video.type.startsWith("video/")) {
-      return NextResponse.json({ error: "Please upload a valid video file." }, { status: 400 });
-    }
-    if (video.size <= 0) {
-      return NextResponse.json({ error: "Video file is empty." }, { status: 400 });
-    }
-    if (video.size > MAX_VIDEO_BYTES) {
-      return NextResponse.json(
-        { error: "Video is too large. Max size is 250MB for this test page." },
-        { status: 400 },
-      );
-    }
+
     if (!isValidEmail(recipientEmail)) {
       return NextResponse.json({ error: "Recipient email is invalid." }, { status: 400 });
     }
-
-    const uploaded = await uploadPublicBlob({
-      namespace: "mojos-kitchen",
-      file: video,
-    });
+    if (!originalFileName) {
+      return NextResponse.json({ error: "Original file name is required." }, { status: 400 });
+    }
+    if (!fileUrl || !isLikelyHttpUrl(fileUrl)) {
+      return NextResponse.json({ error: "Uploaded file URL is invalid." }, { status: 400 });
+    }
 
     const created = await prisma.kitchenVideo.create({
       data: {
         uploaderId: user.id,
         recipientEmail,
         title,
-        originalFileName: video.name || uploaded.pathname,
-        fileUrl: uploaded.url,
+        originalFileName,
+        fileUrl,
         shareToken: randomBytes(24).toString("base64url"),
       },
       include: {

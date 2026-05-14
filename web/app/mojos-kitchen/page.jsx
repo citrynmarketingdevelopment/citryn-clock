@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
 import WorkspaceShell from "@/components/workspace-shell";
+
+async function parseJsonSafe(response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return { error: text || `Request failed (${response.status}).` };
+  }
+}
 
 export default function MojosKitchenPage() {
   const router = useRouter();
@@ -33,7 +43,7 @@ export default function MojosKitchenPage() {
       setUser(meData.user);
 
       const videosRes = await fetch("/api/mojos-kitchen/videos", { cache: "no-store" });
-      const videosData = await videosRes.json();
+      const videosData = await parseJsonSafe(videosRes);
       if (!videosRes.ok) {
         setError(videosData.error ?? "Unable to load videos.");
         return;
@@ -68,16 +78,23 @@ export default function MojosKitchenPage() {
     setCopiedToken(null);
 
     try {
-      const payload = new FormData();
-      payload.append("title", form.title);
-      payload.append("recipientEmail", form.recipientEmail);
-      payload.append("video", form.video);
+      const fileName = `mojos-kitchen/${form.video.name || "video-upload.mp4"}`;
+      const blobResult = await upload(fileName, form.video, {
+        access: "public",
+        handleUploadUrl: "/api/mojos-kitchen/client-upload",
+      });
 
       const response = await fetch("/api/mojos-kitchen/videos", {
         method: "POST",
-        body: payload,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title,
+          recipientEmail: form.recipientEmail,
+          originalFileName: form.video.name,
+          fileUrl: blobResult.url,
+        }),
       });
-      const data = await response.json();
+      const data = await parseJsonSafe(response);
       if (!response.ok) {
         setError(data.error ?? "Unable to upload video.");
         return;
@@ -121,7 +138,7 @@ export default function MojosKitchenPage() {
       const response = await fetch(`/api/mojos-kitchen/videos/${videoId}/send`, {
         method: "POST",
       });
-      const data = await response.json();
+      const data = await parseJsonSafe(response);
       if (!response.ok) {
         setError(data.error ?? "Unable to send review email.");
         return;
