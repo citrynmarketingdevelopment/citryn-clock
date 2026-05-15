@@ -1450,6 +1450,20 @@ th {
   padding: 0 14px 12px;
 }
 
+.timesheet-edit-cell {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.timesheet-edit-cell input {
+  width: 100%;
+}
+
+.timesheet-edit-cell button {
+  padding: 8px 10px;
+}
+
 .track-shell {
   position: relative;
   isolation: isolate;

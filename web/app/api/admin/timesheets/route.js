@@ -4,8 +4,16 @@ import { requireAdmin } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 import { startOfDay, summarizeDay } from "@/lib/time";
 
-function dayKey(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+function hasRequiredModels() {
+  return (
+    typeof prisma.user?.findMany === "function" &&
+    typeof prisma.clockEvent?.findMany === "function" &&
+    typeof prisma.timesheetDayOverride?.findMany === "function"
+  );
+}
+
+function dayKeyFromDate(date) {
+  return date.toISOString().slice(0, 10);
 }
 
 function parseDays(raw) {
@@ -13,12 +21,81 @@ function parseDays(raw) {
   if (!Number.isFinite(value)) {
     return 7;
   }
-  return Math.max(1, Math.min(30, Math.floor(value)));
+  return Math.max(1, Math.min(90, Math.floor(value)));
+}
+
+function parseLocalDateInput(raw) {
+  const text = String(raw || "").trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return new Date(year, month - 1, day);
+}
+
+function parseRange(searchParams) {
+  const startRaw = searchParams.get("start");
+  const endRaw = searchParams.get("end");
+
+  if (startRaw && endRaw) {
+    const start = parseLocalDateInput(startRaw);
+    const end = parseLocalDateInput(endRaw);
+    if (!start || !end) return null;
+    if (end.getTime() < start.getTime()) return null;
+
+    const maxRangeDays = 90;
+    const daySpan = Math.floor((startOfDay(end).getTime() - startOfDay(start).getTime()) / 86400000) + 1;
+    if (daySpan < 1 || daySpan > maxRangeDays) return null;
+
+    const rangeStart = startOfDay(start);
+    const rangeEndExclusive = new Date(startOfDay(end).getTime() + 86400000);
+    return { rangeStart, rangeEndExclusive, days: daySpan };
+  }
+
+  const days = parseDays(searchParams.get("days"));
+  const today = startOfDay(new Date());
+  const rangeStart = new Date(today.getTime() - (days - 1) * 86400000);
+  const rangeEndExclusive = new Date(today.getTime() + 86400000);
+  return { rangeStart, rangeEndExclusive, days };
+}
+
+function summarizeEmployeeDays(events, rangeStart, days, overridesMap) {
+  const grouped = new Map();
+  for (const event of events) {
+    const key = dayKeyFromDate(event.occurredAt);
+    const current = grouped.get(key) ?? [];
+    current.push(event);
+    grouped.set(key, current);
+  }
+
+  const summaries = [];
+  for (let i = 0; i < days; i += 1) {
+    const day = new Date(rangeStart.getTime() + i * 86400000);
+    const key = dayKeyFromDate(day);
+    const baseSummary = summarizeDay(day, grouped.get(key) ?? []);
+    const overrideWorkedSeconds = overridesMap.get(key);
+    const hasOverride = Number.isFinite(overrideWorkedSeconds);
+    const workedSeconds = hasOverride ? Math.max(0, Number(overrideWorkedSeconds) || 0) : baseSummary.workedSeconds;
+
+    summaries.push({
+      ...baseSummary,
+      workedSeconds,
+      workedMinutes: Math.floor(workedSeconds / 60),
+      originalWorkedSeconds: baseSummary.workedSeconds,
+      hasOverride,
+    });
+  }
+
+  summaries.reverse();
+  return summaries;
 }
 
 export async function GET(request) {
+  let adminUser;
   try {
-    await requireAdmin(request);
+    adminUser = await requireAdmin(request);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error && error.message === "FORBIDDEN" ? "Forbidden." : "Unauthorized." },
@@ -26,10 +103,21 @@ export async function GET(request) {
     );
   }
 
-  const days = parseDays(request.nextUrl.searchParams.get("days"));
-  const today = startOfDay(new Date());
-  const rangeStart = new Date(today.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
-  const rangeEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  if (!hasRequiredModels()) {
+    return NextResponse.json(
+      { error: "Timesheet models are missing in this deployment. Redeploy so prisma generate runs on build." },
+      { status: 503 },
+    );
+  }
+
+  const parsedRange = parseRange(request.nextUrl.searchParams);
+  if (!parsedRange) {
+    return NextResponse.json({ error: "Invalid date range. Use YYYY-MM-DD and max 90 days." }, { status: 400 });
+  }
+
+  const { rangeStart, rangeEndExclusive, days } = parsedRange;
+  const overrideStart = new Date(`${dayKeyFromDate(rangeStart)}T00:00:00.000Z`);
+  const overrideEnd = new Date(`${dayKeyFromDate(rangeEndExclusive)}T00:00:00.000Z`);
 
   const users = await prisma.user.findMany({
     where: { role: Role.EMPLOYEE },
@@ -37,42 +125,171 @@ export async function GET(request) {
     orderBy: { createdAt: "asc" },
   });
 
-  const employeeTimesheets = await Promise.all(
-    users.map(async (user) => {
-      const events = await prisma.clockEvent.findMany({
-        where: {
-          userId: user.id,
-          occurredAt: {
-            gte: rangeStart,
-            lt: rangeEnd,
-          },
+  const [events, overrides] = await Promise.all([
+    prisma.clockEvent.findMany({
+      where: {
+        userId: { in: users.map((user) => user.id) },
+        occurredAt: {
+          gte: rangeStart,
+          lt: rangeEndExclusive,
         },
-        orderBy: { occurredAt: "asc" },
-      });
-
-      const grouped = new Map();
-      for (const event of events) {
-        const key = dayKey(event.occurredAt);
-        const current = grouped.get(key) ?? [];
-        current.push(event);
-        grouped.set(key, current);
-      }
-
-      const summaries = [];
-      for (let i = 0; i < days; i += 1) {
-        const day = new Date(rangeStart.getTime() + i * 24 * 60 * 60 * 1000);
-        const key = dayKey(day);
-        summaries.push(summarizeDay(day, grouped.get(key) ?? []));
-      }
-
-      summaries.reverse();
-
-      return {
-        user,
-        summaries,
-      };
+      },
+      orderBy: { occurredAt: "asc" },
     }),
-  );
+    prisma.timesheetDayOverride.findMany({
+      where: {
+        userId: { in: users.map((user) => user.id) },
+        day: {
+          gte: overrideStart,
+          lt: overrideEnd,
+        },
+      },
+      select: { userId: true, day: true, workedSeconds: true },
+    }),
+  ]);
 
-  return NextResponse.json({ employeeTimesheets });
+  const eventsByUser = new Map();
+  for (const event of events) {
+    const current = eventsByUser.get(event.userId) ?? [];
+    current.push(event);
+    eventsByUser.set(event.userId, current);
+  }
+
+  const overridesByUser = new Map();
+  for (const override of overrides) {
+    const current = overridesByUser.get(override.userId) ?? new Map();
+    current.set(dayKeyFromDate(override.day), override.workedSeconds);
+    overridesByUser.set(override.userId, current);
+  }
+
+  const employeeTimesheets = users.map((user) => {
+    const summaries = summarizeEmployeeDays(
+      eventsByUser.get(user.id) ?? [],
+      rangeStart,
+      days,
+      overridesByUser.get(user.id) ?? new Map(),
+    );
+
+    const totalWorkedSeconds = summaries.reduce((sum, item) => sum + (Number(item.workedSeconds) || 0), 0);
+    const totalBreakSeconds = summaries.reduce((sum, item) => sum + (Number(item.breakSeconds) || 0), 0);
+
+    return {
+      user,
+      summaries,
+      totals: {
+        workedSeconds: totalWorkedSeconds,
+        breakSeconds: totalBreakSeconds,
+      },
+    };
+  });
+
+  const rangeStartKey = dayKeyFromDate(rangeStart);
+  const rangeEndKey = dayKeyFromDate(new Date(rangeEndExclusive.getTime() - 1));
+
+  return NextResponse.json({
+    employeeTimesheets,
+    range: {
+      start: rangeStartKey,
+      end: rangeEndKey,
+      days,
+      loadedAt: new Date().toISOString(),
+      adminId: adminUser.id,
+    },
+  });
+}
+
+export async function PATCH(request) {
+  let adminUser;
+  try {
+    adminUser = await requireAdmin(request);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error && error.message === "FORBIDDEN" ? "Forbidden." : "Unauthorized." },
+      { status: error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401 },
+    );
+  }
+
+  if (!hasRequiredModels()) {
+    return NextResponse.json(
+      { error: "Timesheet models are missing in this deployment. Redeploy so prisma generate runs on build." },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const payload = await request.json().catch(() => null);
+    const userId = String(payload?.userId || "").trim();
+    const dayInput = String(payload?.day || "").trim();
+    const hoursRaw = payload?.hours;
+
+    if (!userId) {
+      return NextResponse.json({ error: "userId is required." }, { status: 400 });
+    }
+
+    const parsedDay = parseLocalDateInput(dayInput);
+    if (!parsedDay) {
+      return NextResponse.json({ error: "day must be YYYY-MM-DD." }, { status: 400 });
+    }
+    const day = new Date(`${dayKeyFromDate(parsedDay)}T00:00:00.000Z`);
+
+    const employee = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!employee || employee.role !== Role.EMPLOYEE) {
+      return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+    }
+
+    if (hoursRaw === null || hoursRaw === "" || typeof hoursRaw === "undefined") {
+      await prisma.timesheetDayOverride.deleteMany({
+        where: {
+          userId,
+          day,
+        },
+      });
+      return NextResponse.json({ ok: true, cleared: true });
+    }
+
+    const hours = Number(hoursRaw);
+    if (!Number.isFinite(hours) || hours < 0 || hours > 24) {
+      return NextResponse.json({ error: "hours must be between 0 and 24." }, { status: 400 });
+    }
+
+    const workedSeconds = Math.round(hours * 3600);
+
+    const override = await prisma.timesheetDayOverride.upsert({
+      where: {
+        userId_day: {
+          userId,
+          day,
+        },
+      },
+      create: {
+        userId,
+        day,
+        workedSeconds,
+        updatedByAdminId: adminUser.id,
+      },
+      update: {
+        workedSeconds,
+        updatedByAdminId: adminUser.id,
+      },
+      select: {
+        userId: true,
+        day: true,
+        workedSeconds: true,
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      override: {
+        userId: override.userId,
+        day: dayKeyFromDate(override.day),
+        workedSeconds: override.workedSeconds,
+      },
+    });
+  } catch {
+    return NextResponse.json({ error: "Unable to update timesheet override." }, { status: 500 });
+  }
 }

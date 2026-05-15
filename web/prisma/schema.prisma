@@ -44,6 +44,8 @@ model User {
   taskAssignments      TaskAssignment[] @relation("TaskAssignee")
   taskAssignmentsGiven TaskAssignment[] @relation("TaskAssignedBy")
   kitchenVideos        KitchenVideo[]
+  dayOverrides         TimesheetDayOverride[] @relation("TimesheetOverrideUser")
+  dayOverridesSet      TimesheetDayOverride[] @relation("TimesheetOverrideAdmin")
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 }
@@ -165,4 +167,19 @@ model KitchenVideoComment {
   createdAt        DateTime     @default(now())
 
   @@index([kitchenVideoId, createdAt])
+}
+
+model TimesheetDayOverride {
+  id                  String   @id @default(cuid())
+  userId              String
+  day                 DateTime @db.Date
+  workedSeconds       Int
+  updatedByAdminId    String
+  user                User     @relation("TimesheetOverrideUser", fields: [userId], references: [id], onDelete: Cascade)
+  updatedByAdmin      User     @relation("TimesheetOverrideAdmin", fields: [updatedByAdminId], references: [id], onDelete: Restrict)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([userId, day])
+  @@index([day, userId])
 }
