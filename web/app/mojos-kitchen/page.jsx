@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { upload } from "@vercel/blob/client";
+import Image from "next/image";
 import WorkspaceShell from "@/components/workspace-shell";
 
 async function parseJsonSafe(response) {
@@ -10,7 +10,7 @@ async function parseJsonSafe(response) {
   try {
     return text ? JSON.parse(text) : {};
   } catch {
-    return { error: text || `Request failed (${response.status}).` };
+    return { error: "Unexpected response." };
   }
 }
 
@@ -19,15 +19,16 @@ export default function MojosKitchenPage() {
   const [user, setUser] = useState(null);
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [sendingVideoId, setSendingVideoId] = useState(null);
+  const [deletingVideoId, setDeletingVideoId] = useState(null);
   const [lastSentVideoId, setLastSentVideoId] = useState(null);
   const [error, setError] = useState(null);
   const [copiedToken, setCopiedToken] = useState(null);
   const [form, setForm] = useState({
     title: "",
     recipientEmail: "",
-    video: null,
+    youtubeUrl: "",
   });
 
   const loadData = useCallback(async () => {
@@ -68,35 +69,24 @@ export default function MojosKitchenPage() {
 
   async function onSubmit(event) {
     event.preventDefault();
-    if (!form.video) {
-      setError("Please choose a video to upload.");
-      return;
-    }
 
-    setUploading(true);
+    setSubmitting(true);
     setError(null);
     setCopiedToken(null);
 
     try {
-      const fileName = `mojos-kitchen/${form.video.name || "video-upload.mp4"}`;
-      const blobResult = await upload(fileName, form.video, {
-        access: "public",
-        handleUploadUrl: "/api/mojos-kitchen/client-upload",
-      });
-
       const response = await fetch("/api/mojos-kitchen/videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: form.title,
           recipientEmail: form.recipientEmail,
-          originalFileName: form.video.name,
-          fileUrl: blobResult.url,
+          youtubeUrl: form.youtubeUrl,
         }),
       });
       const data = await parseJsonSafe(response);
       if (!response.ok) {
-        setError(data.error ?? "Unable to upload video.");
+        setError(data.error ?? "Unable to save YouTube link.");
         return;
       }
 
@@ -104,16 +94,12 @@ export default function MojosKitchenPage() {
       setForm({
         title: "",
         recipientEmail: "",
-        video: null,
+        youtubeUrl: "",
       });
-      const fileInput = document.getElementById("mk-video-input");
-      if (fileInput instanceof HTMLInputElement) {
-        fileInput.value = "";
-      }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Upload failed. Please sign in again and retry.");
+    } catch {
+      setError("Unable to save YouTube link.");
     } finally {
-      setUploading(false);
+      setSubmitting(false);
     }
   }
 
@@ -154,6 +140,29 @@ export default function MojosKitchenPage() {
     }
   }
 
+  async function deleteVideo(videoId) {
+    const confirmed = window.confirm("Delete this Mojo's Kitchen item?");
+    if (!confirmed) return;
+
+    setError(null);
+    setDeletingVideoId(videoId);
+    try {
+      const response = await fetch(`/api/mojos-kitchen/videos/${videoId}`, {
+        method: "DELETE",
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok) {
+        setError(data.error ?? "Unable to delete item.");
+        return;
+      }
+      setVideos((current) => current.filter((video) => video.id !== videoId));
+    } catch {
+      setError("Unable to delete item.");
+    } finally {
+      setDeletingVideoId(null);
+    }
+  }
+
   const stats = useMemo(() => {
     const commentCount = videos.reduce((sum, video) => sum + (video.commentCount || 0), 0);
     return {
@@ -168,7 +177,7 @@ export default function MojosKitchenPage() {
         <header className="mk-header">
           <div>
             <h1>Mojo&apos;s Kitchen</h1>
-            <p>Upload videos and manage client feedback from a dedicated comments view.</p>
+            <p>Add YouTube links and manage client feedback from a dedicated comments view.</p>
           </div>
           <div className="mk-header-meta">
             <span>{stats.videoCount} videos</span>
@@ -177,7 +186,7 @@ export default function MojosKitchenPage() {
         </header>
 
         <section className="mk-upload-card">
-          <h2>Upload New Review Video</h2>
+          <h2>Add New Review Link</h2>
           <form className="mk-upload-form" onSubmit={onSubmit}>
             <input
               type="text"
@@ -193,21 +202,21 @@ export default function MojosKitchenPage() {
               onChange={(event) => setForm((current) => ({ ...current, recipientEmail: event.target.value }))}
             />
             <input
-              id="mk-video-input"
               required
-              type="file"
-              accept="video/*"
-              onChange={(event) => setForm((current) => ({ ...current, video: event.target.files?.[0] ?? null }))}
+              type="url"
+              placeholder="YouTube link (watch, shorts, or youtu.be)"
+              value={form.youtubeUrl}
+              onChange={(event) => setForm((current) => ({ ...current, youtubeUrl: event.target.value }))}
             />
-            <button type="submit" disabled={uploading}>
-              {uploading ? "Uploading..." : "Upload and Generate Link"}
+            <button type="submit" disabled={submitting}>
+              {submitting ? "Saving..." : "Save Link and Generate Review URL"}
             </button>
           </form>
         </section>
 
         {loading ? <p className="mk-empty">Loading videos...</p> : null}
         {!loading && videos.length === 0 ? (
-          <p className="mk-empty">No review videos yet. Upload one to create your first client link.</p>
+          <p className="mk-empty">No review videos yet. Add a YouTube link to create your first client link.</p>
         ) : null}
 
         <section className="mk-video-grid">
@@ -228,12 +237,22 @@ export default function MojosKitchenPage() {
                 }}
               >
                 <div className="mk-video-thumb-wrap">
-                  <video className="mk-video-thumb" src={video.fileUrl} preload="metadata" muted playsInline />
+                  {video.youtubeThumbnailUrl ? (
+                    <Image
+                      className="mk-video-thumb"
+                      src={video.youtubeThumbnailUrl}
+                      alt={video.title || "Video thumbnail"}
+                      fill
+                      sizes="(max-width: 920px) 100vw, (max-width: 1280px) 50vw, 33vw"
+                    />
+                  ) : (
+                    <div className="mk-video-thumb mk-video-thumb-fallback">No thumbnail</div>
+                  )}
                 </div>
 
                 <div className="mk-video-top">
                   <div>
-                    <h3>{video.title || video.originalFileName}</h3>
+                    <h3>{video.title || "Untitled YouTube video"}</h3>
                     <p>{video.recipientEmail}</p>
                   </div>
                   <span>{new Date(video.createdAt).toLocaleDateString()}</span>
@@ -255,6 +274,14 @@ export default function MojosKitchenPage() {
                     disabled={sendingVideoId === video.id}
                   >
                     {sendingVideoId === video.id ? "Sending..." : "Send Email"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => deleteVideo(video.id)}
+                    disabled={deletingVideoId === video.id}
+                  >
+                    {deletingVideoId === video.id ? "Deleting..." : "Delete"}
                   </button>
                 </div>
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getYouTubeVideoId, getYouTubeEmbedUrl, getYouTubeThumbnailUrl } from "@/lib/youtube";
 
 function hasKitchenModels() {
   return (
@@ -13,12 +14,16 @@ function isValidEmail(value) {
 }
 
 function serializeVideo(video) {
+  const youtubeVideoId = getYouTubeVideoId(video.fileUrl);
   return {
     id: video.id,
     title: video.title,
     recipientEmail: video.recipientEmail,
     originalFileName: video.originalFileName,
     fileUrl: video.fileUrl,
+    youtubeVideoId,
+    youtubeEmbedUrl: youtubeVideoId ? getYouTubeEmbedUrl(youtubeVideoId) : null,
+    youtubeThumbnailUrl: youtubeVideoId ? getYouTubeThumbnailUrl(youtubeVideoId) : null,
     createdAt: video.createdAt,
     comments: (video.comments ?? []).map((comment) => ({
       id: comment.id,

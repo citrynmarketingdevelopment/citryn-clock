@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { getYouTubeEmbedUrl } from "@/lib/youtube";
 
 function formatCommentTime(seconds) {
   const safe = Math.max(0, Number(seconds) || 0);
@@ -23,10 +24,45 @@ async function parseJsonSafe(response) {
   }
 }
 
+let youtubeApiPromise = null;
+
+function loadYouTubeApi() {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("YouTube API can only run in the browser."));
+  }
+  if (window.YT?.Player) {
+    return Promise.resolve(window.YT);
+  }
+  if (youtubeApiPromise) {
+    return youtubeApiPromise;
+  }
+
+  youtubeApiPromise = new Promise((resolve) => {
+    const previousReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof previousReady === "function") {
+        previousReady();
+      }
+      resolve(window.YT);
+    };
+
+    const existing = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+    if (!existing) {
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      document.body.appendChild(script);
+    }
+  });
+
+  return youtubeApiPromise;
+}
+
 export default function KitchenReviewPage() {
   const params = useParams();
   const token = params?.token;
-  const videoRef = useRef(null);
+  const playerMountRef = useRef(null);
+  const playerRef = useRef(null);
+  const timestampRef = useRef(0);
 
   const [video, setVideo] = useState(null);
   const [error, setError] = useState(null);
@@ -37,6 +73,10 @@ export default function KitchenReviewPage() {
     authorEmail: "",
     body: "",
   });
+
+  useEffect(() => {
+    timestampRef.current = Math.max(0, Math.floor(currentTimestamp));
+  }, [currentTimestamp]);
 
   const loadVideo = useCallback(async () => {
     if (!token) return;
@@ -61,11 +101,55 @@ export default function KitchenReviewPage() {
     loadVideo();
   }, [loadVideo]);
 
-  function captureTimestampFromVideo() {
-    const player = videoRef.current;
-    if (!player) return;
-    setCurrentTimestamp(Math.floor(player.currentTime || 0));
-  }
+  useEffect(() => {
+    if (!video?.youtubeVideoId || !playerMountRef.current) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    loadYouTubeApi()
+      .then((YT) => {
+        if (cancelled || !playerMountRef.current) return;
+
+        if (playerRef.current?.destroy) {
+          playerRef.current.destroy();
+        }
+
+        playerRef.current = new YT.Player(playerMountRef.current, {
+          width: "100%",
+          height: "100%",
+          videoId: video.youtubeVideoId,
+          playerVars: {
+            start: timestampRef.current,
+          },
+          events: {
+            onReady: (event) => {
+              if (timestampRef.current > 0) {
+                event.target.seekTo(timestampRef.current, true);
+              }
+            },
+            onStateChange: (event) => {
+              if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
+                const seconds = Math.max(0, Math.floor(event.target.getCurrentTime() || 0));
+                setCurrentTimestamp(seconds);
+              }
+            },
+          },
+        });
+      })
+      .catch(() => {
+        setError("Unable to initialize YouTube player.");
+      });
+
+    return () => {
+      cancelled = true;
+      if (playerRef.current?.destroy) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
+  }, [video?.youtubeVideoId]);
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -110,14 +194,21 @@ export default function KitchenReviewPage() {
   }
 
   function jumpTo(seconds) {
-    const player = videoRef.current;
-    if (!player) return;
-    player.currentTime = Math.max(0, Number(seconds) || 0);
-    player.pause();
-    setCurrentTimestamp(Math.max(0, Math.floor(Number(seconds) || 0)));
+    const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+    setCurrentTimestamp(safe);
+    if (playerRef.current?.seekTo) {
+      playerRef.current.seekTo(safe, true);
+      if (playerRef.current.pauseVideo) {
+        playerRef.current.pauseVideo();
+      }
+    }
   }
 
   const commentCount = useMemo(() => video?.comments?.length ?? 0, [video]);
+  const embedUrl = useMemo(() => {
+    if (!video?.youtubeVideoId) return null;
+    return getYouTubeEmbedUrl(video.youtubeVideoId, currentTimestamp);
+  }, [video, currentTimestamp]);
 
   if (loading) {
     return <main className="mk-review-shell">Loading review video...</main>;
@@ -131,19 +222,22 @@ export default function KitchenReviewPage() {
     <main className="mk-review-shell">
       <section className="mk-review-card">
         <header className="mk-review-header">
-          <h1>{video.title || video.originalFileName}</h1>
-          <p>Pause the video at any frame and leave revision notes.</p>
+          <h1>{video.title || "YouTube review"}</h1>
+          <p>Watch the YouTube video and leave revision notes with a timestamp in seconds.</p>
         </header>
 
-        <video
-          ref={videoRef}
-          className="mk-review-player"
-          controls
-          src={video.fileUrl}
-          preload="metadata"
-          onPause={captureTimestampFromVideo}
-          onSeeked={captureTimestampFromVideo}
-        />
+        {embedUrl ? (
+          <div className="mk-review-player-wrap">
+            <div ref={playerMountRef} className="mk-review-player" />
+          </div>
+        ) : (
+          <p className="mk-empty">
+            Invalid YouTube link.{" "}
+            <a href={video.fileUrl} target="_blank" rel="noreferrer">
+              Open raw URL
+            </a>
+          </p>
+        )}
 
         <section className="mk-review-compose">
           <h2>Leave a Comment</h2>
@@ -155,6 +249,14 @@ export default function KitchenReviewPage() {
               placeholder="Your email"
               value={form.authorEmail}
               onChange={(event) => setForm((current) => ({ ...current, authorEmail: event.target.value }))}
+            />
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={currentTimestamp}
+              onChange={(event) => setCurrentTimestamp(Math.max(0, Number(event.target.value) || 0))}
+              placeholder="Timestamp in seconds"
             />
             <textarea
               required

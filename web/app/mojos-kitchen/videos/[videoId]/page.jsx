@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import WorkspaceShell from "@/components/workspace-shell";
+import { getYouTubeEmbedUrl } from "@/lib/youtube";
 
 function formatCommentTime(seconds) {
   const safe = Math.max(0, Number(seconds) || 0);
@@ -15,18 +16,28 @@ function formatCommentTime(seconds) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+async function parseJsonSafe(response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return { error: "Unexpected response." };
+  }
+}
+
 export default function MojosKitchenVideoPage() {
   const params = useParams();
   const router = useRouter();
-  const playerRef = useRef(null);
   const videoId = params?.videoId;
 
   const [user, setUser] = useState(null);
   const [video, setVideo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
+  const [activeTimestamp, setActiveTimestamp] = useState(0);
 
   const loadData = useCallback(async () => {
     if (!videoId) return;
@@ -42,7 +53,7 @@ export default function MojosKitchenVideoPage() {
       setUser(meData.user);
 
       const response = await fetch(`/api/mojos-kitchen/videos/${videoId}`, { cache: "no-store" });
-      const data = await response.json();
+      const data = await parseJsonSafe(response);
       if (!response.ok) {
         setError(data.error ?? "Unable to load video.");
         return;
@@ -85,7 +96,7 @@ export default function MojosKitchenVideoPage() {
       const response = await fetch(`/api/mojos-kitchen/videos/${video.id}/send`, {
         method: "POST",
       });
-      const data = await response.json();
+      const data = await parseJsonSafe(response);
       if (!response.ok) {
         setError(data.error ?? "Unable to send review email.");
         return;
@@ -97,21 +108,43 @@ export default function MojosKitchenVideoPage() {
     }
   }
 
-  function jumpTo(seconds) {
-    const player = playerRef.current;
-    if (!player) return;
-    player.currentTime = Math.max(0, Number(seconds) || 0);
-    player.pause();
+  async function deleteVideo() {
+    if (!video?.id) return;
+    const confirmed = window.confirm("Delete this Mojo's Kitchen item?");
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/mojos-kitchen/videos/${video.id}`, {
+        method: "DELETE",
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok) {
+        setError(data.error ?? "Unable to delete item.");
+        return;
+      }
+      router.push("/mojos-kitchen");
+      router.refresh();
+    } catch {
+      setError("Unable to delete item.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   const commentCount = useMemo(() => video?.comments?.length ?? 0, [video]);
+  const embedUrl = useMemo(() => {
+    if (!video?.youtubeVideoId) return null;
+    return getYouTubeEmbedUrl(video.youtubeVideoId, activeTimestamp);
+  }, [video, activeTimestamp]);
 
   return (
     <WorkspaceShell user={user} onLogout={logout}>
       <section className="mk-shell mk-detail-shell">
         <header className="mk-header">
           <div>
-            <h1>{video?.title || video?.originalFileName || "Video comments"}</h1>
+            <h1>{video?.title || "YouTube comments"}</h1>
             <p>Employee comments view with full customer feedback timeline.</p>
           </div>
           <div className="mk-header-meta">
@@ -130,6 +163,9 @@ export default function MojosKitchenVideoPage() {
           <button type="button" className="secondary" onClick={sendReviewEmail} disabled={sending || !video?.id}>
             {sending ? "Sending..." : "Send Email"}
           </button>
+          <button type="button" className="secondary" onClick={deleteVideo} disabled={deleting || !video?.id}>
+            {deleting ? "Deleting..." : "Delete"}
+          </button>
         </div>
 
         {loading ? <p className="mk-empty">Loading video...</p> : null}
@@ -138,8 +174,23 @@ export default function MojosKitchenVideoPage() {
         {video ? (
           <section className="mk-detail-layout">
             <article className="mk-detail-player-card">
-              <video ref={playerRef} className="mk-video-player" controls src={video.fileUrl} preload="metadata" />
-              <p className="mk-detail-created">Uploaded {new Date(video.createdAt).toLocaleString()}</p>
+              {embedUrl ? (
+                <iframe
+                  className="mk-video-player"
+                  src={embedUrl}
+                  title={video.title || "YouTube review"}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              ) : (
+                <p className="mk-empty">
+                  This item does not have a valid YouTube link.{" "}
+                  <a href={video.fileUrl} target="_blank" rel="noreferrer">
+                    Open raw URL
+                  </a>
+                </p>
+              )}
+              <p className="mk-detail-created">Added {new Date(video.createdAt).toLocaleString()}</p>
             </article>
 
             <article className="mk-detail-comments-card">
@@ -147,7 +198,11 @@ export default function MojosKitchenVideoPage() {
               {video.comments?.length ? (
                 video.comments.map((comment) => (
                   <div key={comment.id} className="mk-comment-item">
-                    <button type="button" className="mk-timestamp-btn" onClick={() => jumpTo(comment.timestampSeconds)}>
+                    <button
+                      type="button"
+                      className="mk-timestamp-btn"
+                      onClick={() => setActiveTimestamp(Math.max(0, Number(comment.timestampSeconds) || 0))}
+                    >
                       {formatCommentTime(comment.timestampSeconds)}
                     </button>
                     <div>

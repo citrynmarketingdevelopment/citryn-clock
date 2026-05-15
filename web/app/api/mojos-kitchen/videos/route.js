@@ -2,9 +2,12 @@ import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
-import { isBlobConfigured, uploadPublicBlob } from "@/lib/blob-storage";
-
-const MAX_VIDEO_BYTES = 250 * 1024 * 1024;
+import {
+  getYouTubeVideoId,
+  getYouTubeWatchUrl,
+  getYouTubeEmbedUrl,
+  getYouTubeThumbnailUrl,
+} from "@/lib/youtube";
 
 function hasKitchenModels() {
   return (
@@ -17,17 +20,17 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function isLikelyHttpUrl(value) {
-  return /^https?:\/\//i.test(value);
-}
-
 function toVideoResponse(video) {
+  const youtubeVideoId = getYouTubeVideoId(video.fileUrl);
   return {
     id: video.id,
     title: video.title,
     recipientEmail: video.recipientEmail,
     originalFileName: video.originalFileName,
     fileUrl: video.fileUrl,
+    youtubeVideoId,
+    youtubeEmbedUrl: youtubeVideoId ? getYouTubeEmbedUrl(youtubeVideoId) : null,
+    youtubeThumbnailUrl: youtubeVideoId ? getYouTubeThumbnailUrl(youtubeVideoId) : null,
     shareToken: video.shareToken,
     shareUrl: `/mojos-kitchen/review/${video.shareToken}`,
     createdAt: video.createdAt,
@@ -53,12 +56,6 @@ export async function GET(request) {
   if (!hasKitchenModels()) {
     return NextResponse.json(
       { error: "Mojo's Kitchen models are missing in this deployment. Redeploy so prisma generate runs on build." },
-      { status: 503 },
-    );
-  }
-  if (!isBlobConfigured()) {
-    return NextResponse.json(
-      { error: "Blob storage is not configured. Set BLOB_READ_WRITE_TOKEN." },
       { status: 503 },
     );
   }
@@ -96,66 +93,23 @@ export async function POST(request) {
       { status: 503 },
     );
   }
-  if (!isBlobConfigured()) {
-    return NextResponse.json({ error: "Blob storage is not configured. Set BLOB_READ_WRITE_TOKEN." }, { status: 503 });
-  }
 
   try {
-    const contentType = request.headers.get("content-type") || "";
-    const isJsonRequest = contentType.includes("application/json");
-
-    let title = null;
-    let recipientEmail = "";
-    let originalFileName = "";
-    let fileUrl = "";
-
-    if (isJsonRequest) {
-      const payload = await request.json();
-      recipientEmail = String(payload?.recipientEmail || "").trim().toLowerCase();
-      const titleRaw = String(payload?.title || "").trim();
-      title = titleRaw.length > 0 ? titleRaw.slice(0, 160) : null;
-      originalFileName = String(payload?.originalFileName || "").trim();
-      fileUrl = String(payload?.fileUrl || "").trim();
-    } else {
-      const formData = await request.formData();
-      const video = formData.get("video");
-      recipientEmail = String(formData.get("recipientEmail") || "").trim().toLowerCase();
-      const titleRaw = String(formData.get("title") || "").trim();
-      title = titleRaw.length > 0 ? titleRaw.slice(0, 160) : null;
-
-      if (!(video instanceof File)) {
-        return NextResponse.json({ error: "Video file is required." }, { status: 400 });
-      }
-      if (!video.type.startsWith("video/")) {
-        return NextResponse.json({ error: "Please upload a valid video file." }, { status: 400 });
-      }
-      if (video.size <= 0) {
-        return NextResponse.json({ error: "Video file is empty." }, { status: 400 });
-      }
-      if (video.size > MAX_VIDEO_BYTES) {
-        return NextResponse.json(
-          { error: "Video is too large. Max size is 250MB for this test page." },
-          { status: 400 },
-        );
-      }
-
-      const uploaded = await uploadPublicBlob({
-        namespace: "mojos-kitchen",
-        file: video,
-      });
-      originalFileName = video.name || uploaded.pathname;
-      fileUrl = uploaded.url;
-    }
+    const payload = await request.json().catch(() => null);
+    const recipientEmail = String(payload?.recipientEmail || "").trim().toLowerCase();
+    const titleRaw = String(payload?.title || "").trim();
+    const title = titleRaw.length > 0 ? titleRaw.slice(0, 160) : null;
+    const youtubeUrlRaw = String(payload?.youtubeUrl || payload?.fileUrl || "").trim();
+    const youtubeVideoId = getYouTubeVideoId(youtubeUrlRaw);
 
     if (!isValidEmail(recipientEmail)) {
       return NextResponse.json({ error: "Recipient email is invalid." }, { status: 400 });
     }
-    if (!originalFileName) {
-      return NextResponse.json({ error: "Original file name is required." }, { status: 400 });
+    if (!youtubeVideoId) {
+      return NextResponse.json({ error: "Please enter a valid YouTube link." }, { status: 400 });
     }
-    if (!fileUrl || !isLikelyHttpUrl(fileUrl)) {
-      return NextResponse.json({ error: "Uploaded file URL is invalid." }, { status: 400 });
-    }
+    const fileUrl = getYouTubeWatchUrl(youtubeVideoId);
+    const originalFileName = `youtube:${youtubeVideoId}`;
 
     const created = await prisma.kitchenVideo.create({
       data: {
@@ -182,10 +136,7 @@ export async function POST(request) {
       },
       { status: 201 },
     );
-  } catch (error) {
-    if (error instanceof Error && error.message === "BLOB_NOT_CONFIGURED") {
-      return NextResponse.json({ error: "Blob storage is not configured." }, { status: 503 });
-    }
-    return NextResponse.json({ error: "Unable to upload video." }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Unable to save YouTube link." }, { status: 500 });
   }
 }
