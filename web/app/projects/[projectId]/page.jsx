@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import WorkspaceShell from "@/components/workspace-shell";
 
 const priorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
@@ -48,7 +49,18 @@ export default function ProjectBoardPage() {
   const [updatingTask, setUpdatingTask] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const [activeTask, setActiveTask] = useState(null);
+  const [savingAttachment, setSavingAttachment] = useState(false);
+  const [showAddLinkForm, setShowAddLinkForm] = useState(false);
+  const [showAddImageForm, setShowAddImageForm] = useState(false);
   const [assigneeQuery, setAssigneeQuery] = useState("");
+  const [linkAttachmentForm, setLinkAttachmentForm] = useState({
+    url: "",
+    label: "",
+  });
+  const [imageAttachmentForm, setImageAttachmentForm] = useState({
+    label: "",
+    file: null,
+  });
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -118,7 +130,7 @@ export default function ProjectBoardPage() {
           setShowComposer(false);
           return;
         }
-        if (activeTask) {
+        if (activeTask && !savingAttachment) {
           setActiveTask(null);
         }
       }
@@ -129,7 +141,7 @@ export default function ProjectBoardPage() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [activeTask, saving, showComposer]);
+  }, [activeTask, saving, savingAttachment, showComposer]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -154,10 +166,21 @@ export default function ProjectBoardPage() {
   }
 
   function openTaskDetails(task) {
+    setShowAddLinkForm(false);
+    setShowAddImageForm(false);
+    setLinkAttachmentForm({
+      url: "",
+      label: "",
+    });
+    setImageAttachmentForm({
+      label: "",
+      file: null,
+    });
     setActiveTask(task);
   }
 
   function closeTaskDetails() {
+    if (savingAttachment) return;
     setActiveTask(null);
   }
 
@@ -195,6 +218,86 @@ export default function ProjectBoardPage() {
       setError("Unable to update task.");
     } finally {
       setUpdatingTask(false);
+    }
+  }
+
+  async function onAddLinkAttachment(event) {
+    event.preventDefault();
+    if (!activeTask) return;
+    if (!linkAttachmentForm.url.trim()) {
+      setError("Link URL is required.");
+      return;
+    }
+
+    setSavingAttachment(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append("type", "LINK");
+      if (linkAttachmentForm.label.trim()) {
+        body.append("label", linkAttachmentForm.label.trim());
+      }
+      body.append("url", linkAttachmentForm.url.trim());
+
+      const response = await fetch(`/api/tasks/${activeTask.id}/attachments`, {
+        method: "POST",
+        body,
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok || !data.task) {
+        setError(data.error ?? "Unable to add attachment.");
+        return;
+      }
+
+      mergeUpdatedTask(data.task);
+      setLinkAttachmentForm({
+        url: "",
+        label: "",
+      });
+    } catch {
+      setError("Unable to add attachment.");
+    } finally {
+      setSavingAttachment(false);
+    }
+  }
+
+  async function onAddImageAttachment(event) {
+    event.preventDefault();
+    if (!activeTask) return;
+    if (!imageAttachmentForm.file) {
+      setError("Image file is required.");
+      return;
+    }
+
+    setSavingAttachment(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append("type", "IMAGE");
+      if (imageAttachmentForm.label.trim()) {
+        body.append("label", imageAttachmentForm.label.trim());
+      }
+      body.append("file", imageAttachmentForm.file);
+
+      const response = await fetch(`/api/tasks/${activeTask.id}/attachments`, {
+        method: "POST",
+        body,
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok || !data.task) {
+        setError(data.error ?? "Unable to add attachment.");
+        return;
+      }
+
+      mergeUpdatedTask(data.task);
+      setImageAttachmentForm({
+        label: "",
+        file: null,
+      });
+    } catch {
+      setError("Unable to add attachment.");
+    } finally {
+      setSavingAttachment(false);
     }
   }
 
@@ -524,6 +627,139 @@ export default function ProjectBoardPage() {
                 <h3>Description</h3>
                 <p>{activeTask.description}</p>
               </section>
+
+              <section className="taskview-section">
+                <h3>Attachments</h3>
+                <div className="taskview-attachment-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={savingAttachment}
+                    onClick={() => setShowAddImageForm((current) => !current)}
+                  >
+                    + Add attachment
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={savingAttachment}
+                    onClick={() => setShowAddLinkForm((current) => !current)}
+                  >
+                    + Add link
+                  </button>
+                </div>
+
+                {showAddImageForm ? (
+                  <form className="taskview-attachment-form" onSubmit={onAddImageAttachment}>
+                    <input
+                      required
+                      type="file"
+                      accept="image/*"
+                      disabled={savingAttachment}
+                      onChange={(event) =>
+                        setImageAttachmentForm((current) => ({
+                          ...current,
+                          file: event.target.files?.[0] ?? null,
+                        }))
+                      }
+                    />
+                    <input
+                      type="text"
+                      placeholder="Optional label"
+                      value={imageAttachmentForm.label}
+                      disabled={savingAttachment}
+                      onChange={(event) =>
+                        setImageAttachmentForm((current) => ({
+                          ...current,
+                          label: event.target.value,
+                        }))
+                      }
+                    />
+                    <button type="submit" disabled={savingAttachment}>
+                      {savingAttachment ? "Saving..." : "Save attachment"}
+                    </button>
+                  </form>
+                ) : null}
+
+                {showAddLinkForm ? (
+                  <form className="taskview-attachment-form" onSubmit={onAddLinkAttachment}>
+                    <input
+                      required
+                      type="url"
+                      placeholder="https://example.com"
+                      value={linkAttachmentForm.url}
+                      disabled={savingAttachment}
+                      onChange={(event) =>
+                        setLinkAttachmentForm((current) => ({
+                          ...current,
+                          url: event.target.value,
+                        }))
+                      }
+                    />
+                    <input
+                      type="text"
+                      placeholder="Optional label"
+                      value={linkAttachmentForm.label}
+                      disabled={savingAttachment}
+                      onChange={(event) =>
+                        setLinkAttachmentForm((current) => ({
+                          ...current,
+                          label: event.target.value,
+                        }))
+                      }
+                    />
+                    <button type="submit" disabled={savingAttachment}>
+                      {savingAttachment ? "Saving..." : "Save link"}
+                    </button>
+                  </form>
+                ) : null}
+
+                <div className="taskview-attachment-list">
+                  {(activeTask.attachments ?? []).length === 0 ? (
+                    <p className="muted">No attachments yet.</p>
+                  ) : (
+                    (activeTask.attachments ?? []).map((attachment) => (
+                      <article key={attachment.id} className="taskview-attachment-item">
+                        {attachment.type === "IMAGE" ? (
+                          <a
+                            className="taskview-attachment-thumb-link"
+                            href={`/api/task-attachments/${attachment.id}/file`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Image
+                              className="taskview-attachment-thumb"
+                              src={`/api/task-attachments/${attachment.id}/file`}
+                              alt={attachment.label || "Task attachment image"}
+                              width={110}
+                              height={72}
+                              loading="lazy"
+                            />
+                          </a>
+                        ) : null}
+
+                        <div className="taskview-attachment-main">
+                          <div>
+                            <strong>{attachment.label || (attachment.type === "IMAGE" ? "Image" : "Link")}</strong>
+                            <small>{attachment.type === "IMAGE" ? "Image attachment" : "Link attachment"}</small>
+                          </div>
+                          <a
+                            href={
+                              attachment.type === "IMAGE"
+                                ? `/api/task-attachments/${attachment.id}/file`
+                                : attachment.url
+                            }
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open
+                          </a>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </div>
+              </section>
             </section>
           </div>
         ) : null}
@@ -579,6 +815,11 @@ export default function ProjectBoardPage() {
                             <span className={`task-priority-chip ${task.priority.toLowerCase()}`}>{task.priority}</span>
                           </div>
                           {isTaskCompleted(task) ? <div className="task-done-note">Completed</div> : null}
+                          {task.attachments?.length ? (
+                            <div className="projectboard-card-attachment-count">
+                              {task.attachments.length} attachment{task.attachments.length > 1 ? "s" : ""}
+                            </div>
+                          ) : null}
                         </button>
                       ))}
                     </div>

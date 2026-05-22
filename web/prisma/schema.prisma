@@ -31,6 +31,11 @@ enum TaskPriority {
   URGENT
 }
 
+enum TaskAttachmentType {
+  IMAGE
+  LINK
+}
+
 model User {
   id                   String           @id @default(cuid())
   email                String           @unique
@@ -41,6 +46,7 @@ model User {
   ownedProjects        Project[]        @relation("ProjectOwner")
   projectMemberships   ProjectMember[]
   createdTasks         Task[]           @relation("TaskCreator")
+  taskAttachments      TaskAttachment[]
   taskAssignments      TaskAssignment[] @relation("TaskAssignee")
   taskAssignmentsGiven TaskAssignment[] @relation("TaskAssignedBy")
   kitchenVideos        KitchenVideo[]
@@ -118,12 +124,30 @@ model Task {
   column      ProjectColumn?   @relation(fields: [columnId], references: [id], onDelete: SetNull)
   createdBy   User             @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
   assignments TaskAssignment[]
+  attachments TaskAttachment[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
   @@index([projectId, createdAt])
   @@index([dueDate])
   @@index([completedAt])
+}
+
+model TaskAttachment {
+  id         String             @id @default(cuid())
+  taskId      String
+  createdById String
+  type        TaskAttachmentType
+  url         String
+  label       String?
+  blobPath    String?
+  task        Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy   User               @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([taskId, createdAt])
+  @@index([createdById, createdAt])
 }
 
 model TaskAssignment {

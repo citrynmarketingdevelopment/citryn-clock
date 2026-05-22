@@ -34,6 +34,14 @@ function toTaskPayload(task) {
       name: assignment.user.name,
       email: assignment.user.email,
     })),
+    attachments: (task.attachments ?? []).map((attachment) => ({
+      id: attachment.id,
+      type: attachment.type,
+      url: attachment.url,
+      label: attachment.label,
+      createdById: attachment.createdById,
+      createdAt: attachment.createdAt,
+    })),
   };
 }
 
@@ -72,6 +80,9 @@ export async function GET(request, { params }) {
               select: { id: true, name: true, email: true },
             },
           },
+        },
+        attachments: {
+          orderBy: [{ createdAt: "asc" }],
         },
       },
       orderBy: [{ createdAt: "desc" }],
@@ -177,6 +188,9 @@ export async function POST(request, { params }) {
                 select: { id: true, name: true, email: true },
               },
             },
+          },
+          attachments: {
+            orderBy: [{ createdAt: "asc" }],
           },
         },
       });

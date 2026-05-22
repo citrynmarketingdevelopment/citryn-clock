@@ -1095,6 +1095,101 @@ body {
   white-space: pre-wrap;
 }
 
+.taskview-attachment-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.taskview-attachment-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.taskview-attachment-form input,
+.taskview-attachment-form select,
+.taskview-attachment-form button {
+  width: 100%;
+}
+
+.taskview-attachment-form input[type="file"] {
+  border: 1px solid #39455a;
+  border-radius: 12px;
+  background: #121926;
+  color: #e7edf9;
+  padding: 10px 12px;
+}
+
+.taskview-attachment-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.taskview-attachment-item {
+  border: 1px solid #354054;
+  border-radius: 10px;
+  background: #202734;
+  padding: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.taskview-attachment-item strong {
+  color: #f2f6ff;
+  display: block;
+}
+
+.taskview-attachment-item small {
+  color: #aeb8cc;
+}
+
+.taskview-attachment-item a {
+  color: #9ed2ff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.taskview-attachment-item a:hover {
+  text-decoration: underline;
+}
+
+.taskview-attachment-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.taskview-attachment-thumb-link {
+  border: 1px solid #39455a;
+  border-radius: 8px;
+  overflow: hidden;
+  display: block;
+  width: 110px;
+  height: 72px;
+  flex: 0 0 auto;
+}
+
+.taskview-attachment-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #121926;
+}
+
+.projectboard-card-attachment-count {
+  margin-top: 8px;
+  font-size: 0.74rem;
+  color: #9fb0cc;
+  text-transform: uppercase;
+}
+
 main {
   max-width: 1120px;
   margin: 0 auto;
