@@ -120,9 +120,41 @@ body {
   padding-top: 12px;
 }
 
+.ws-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .ws-user-name {
   color: #f3f6fd;
   font-weight: 700;
+}
+
+.ws-settings-link {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #3a4254;
+  background: rgba(53, 60, 75, 0.45);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #d8deeb;
+  text-decoration: none;
+}
+
+.ws-settings-link svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.ws-settings-link:hover {
+  border-color: #89b4ff;
+  background: rgba(74, 121, 227, 0.35);
+  color: #ffffff;
 }
 
 .ws-user-email {
@@ -2536,6 +2568,52 @@ th {
 .mk-timestamp-btn {
   min-width: 72px;
   padding: 8px 10px;
+}
+
+.users-delete-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  background: rgba(8, 11, 18, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.users-delete-modal {
+  width: min(520px, 100%);
+  border: 1px solid #ced8e6;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 18px;
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.26);
+  display: grid;
+  gap: 10px;
+}
+
+.users-delete-modal h3 {
+  margin: 0;
+}
+
+.users-delete-modal .muted {
+  margin: 0;
+}
+
+.users-delete-verify-input {
+  width: 100%;
+}
+
+.users-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+button.users-delete-confirm {
+  background: linear-gradient(130deg, #b91c1c 0%, #dc2626 100%);
 }
 
 
