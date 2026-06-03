@@ -254,7 +254,21 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
     }
   }
 
-  String _fmtDate(String iso) => DateTime.parse(iso).toLocal().toString().split(' ').first;
+  String _fmtDate(String day) {
+    final parts = day.split('-');
+    if (parts.length != 3) {
+      return day;
+    }
+
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final date = int.tryParse(parts[2]);
+    if (year == null || month == null || date == null) {
+      return day;
+    }
+
+    return DateTime(year, month, date).toString().split(' ').first;
+  }
 
   String _fmtDateTime(String? iso) {
     if (iso == null) return '-';
@@ -366,4 +380,3 @@ class DaySummary {
   final int breakMinutes;
   final String status;
 }
-

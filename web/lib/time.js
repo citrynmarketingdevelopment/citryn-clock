@@ -1,4 +1,5 @@
 import { ClockEventType } from "@prisma/client";
+import { formatDayKey } from "@/lib/day";
 
 export function startOfDay(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
@@ -112,7 +113,7 @@ export function summarizeDay(day, events) {
   }
 
   return {
-    day: startOfDay(day).toISOString(),
+    day: formatDayKey(day),
     firstClockIn,
     lastClockOut,
     workedSeconds,

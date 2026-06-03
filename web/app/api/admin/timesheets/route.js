@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-auth";
+import { formatDayKey, formatUtcDayKey } from "@/lib/day";
 import { prisma } from "@/lib/prisma";
 import { startOfDay, summarizeDay } from "@/lib/time";
 
@@ -10,10 +11,6 @@ function hasRequiredModels() {
     typeof prisma.clockEvent?.findMany === "function" &&
     typeof prisma.timesheetDayOverride?.findMany === "function"
   );
-}
-
-function dayKeyFromDate(date) {
-  return date.toISOString().slice(0, 10);
 }
 
 function parseDays(raw) {
@@ -64,7 +61,7 @@ function parseRange(searchParams) {
 function summarizeEmployeeDays(events, rangeStart, days, overridesMap) {
   const grouped = new Map();
   for (const event of events) {
-    const key = dayKeyFromDate(event.occurredAt);
+    const key = formatDayKey(event.occurredAt);
     const current = grouped.get(key) ?? [];
     current.push(event);
     grouped.set(key, current);
@@ -73,7 +70,7 @@ function summarizeEmployeeDays(events, rangeStart, days, overridesMap) {
   const summaries = [];
   for (let i = 0; i < days; i += 1) {
     const day = new Date(rangeStart.getTime() + i * 86400000);
-    const key = dayKeyFromDate(day);
+    const key = formatDayKey(day);
     const baseSummary = summarizeDay(day, grouped.get(key) ?? []);
     const overrideWorkedSeconds = overridesMap.get(key);
     const hasOverride = Number.isFinite(overrideWorkedSeconds);
@@ -116,8 +113,8 @@ export async function GET(request) {
   }
 
   const { rangeStart, rangeEndExclusive, days } = parsedRange;
-  const overrideStart = new Date(`${dayKeyFromDate(rangeStart)}T00:00:00.000Z`);
-  const overrideEnd = new Date(`${dayKeyFromDate(rangeEndExclusive)}T00:00:00.000Z`);
+  const overrideStart = new Date(`${formatDayKey(rangeStart)}T00:00:00.000Z`);
+  const overrideEnd = new Date(`${formatDayKey(rangeEndExclusive)}T00:00:00.000Z`);
 
   const users = await prisma.user.findMany({
     where: { role: Role.EMPLOYEE },
@@ -158,7 +155,7 @@ export async function GET(request) {
   const overridesByUser = new Map();
   for (const override of overrides) {
     const current = overridesByUser.get(override.userId) ?? new Map();
-    current.set(dayKeyFromDate(override.day), override.workedSeconds);
+    current.set(formatUtcDayKey(override.day), override.workedSeconds);
     overridesByUser.set(override.userId, current);
   }
 
@@ -183,8 +180,8 @@ export async function GET(request) {
     };
   });
 
-  const rangeStartKey = dayKeyFromDate(rangeStart);
-  const rangeEndKey = dayKeyFromDate(new Date(rangeEndExclusive.getTime() - 1));
+  const rangeStartKey = formatDayKey(rangeStart);
+  const rangeEndKey = formatDayKey(new Date(rangeEndExclusive.getTime() - 1));
 
   return NextResponse.json({
     employeeTimesheets,
@@ -230,7 +227,7 @@ export async function PATCH(request) {
     if (!parsedDay) {
       return NextResponse.json({ error: "day must be YYYY-MM-DD." }, { status: 400 });
     }
-    const day = new Date(`${dayKeyFromDate(parsedDay)}T00:00:00.000Z`);
+    const day = new Date(`${formatDayKey(parsedDay)}T00:00:00.000Z`);
 
     const employee = await prisma.user.findUnique({
       where: { id: userId },
@@ -285,7 +282,7 @@ export async function PATCH(request) {
       ok: true,
       override: {
         userId: override.userId,
-        day: dayKeyFromDate(override.day),
+        day: formatUtcDayKey(override.day),
         workedSeconds: override.workedSeconds,
       },
     });

@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
+import { formatDayKey } from "@/lib/day";
 import { prisma } from "@/lib/prisma";
 import { summarizeDay, startOfDay } from "@/lib/time";
-
-function dayKey(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
 
 function parseDays(raw) {
   const value = Number(raw ?? "14");
@@ -42,7 +39,7 @@ export async function GET(request) {
 
   const grouped = new Map();
   for (const event of events) {
-    const key = dayKey(event.occurredAt);
+    const key = formatDayKey(event.occurredAt);
     const current = grouped.get(key) ?? [];
     current.push(event);
     grouped.set(key, current);
@@ -51,7 +48,7 @@ export async function GET(request) {
   const summaries = [];
   for (let i = 0; i < days; i += 1) {
     const day = new Date(rangeStart.getTime() + i * 24 * 60 * 60 * 1000);
-    const key = dayKey(day);
+    const key = formatDayKey(day);
     summaries.push(summarizeDay(day, grouped.get(key) ?? []));
   }
 

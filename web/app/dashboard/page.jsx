@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import WorkspaceShell from "@/components/workspace-shell";
+import { parseDayKey } from "@/lib/day";
 
 const TARGET_WORK_SECONDS = 8 * 60 * 60;
 const WORKDAY_KEYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -58,7 +59,8 @@ function formatDurationCompact(seconds) {
 }
 
 function formatDayLabel(dayIso) {
-  const day = new Date(dayIso);
+  const day = parseDayKey(dayIso);
+  if (!day) return dayIso;
   return `${WORKDAY_KEYS[day.getDay()]}, ${MONTH_KEYS[day.getMonth()]} ${String(day.getDate()).padStart(2, "0")}`;
 }
 
@@ -99,8 +101,8 @@ function normalizeHistoryWithToday(today, history, liveTotals) {
 
   if (history.length === 0) return [todayLive];
 
-  const todayKey = new Date(today.day).toDateString();
-  const firstHistoryKey = new Date(history[0].day).toDateString();
+  const todayKey = today.day;
+  const firstHistoryKey = history[0].day;
   if (todayKey === firstHistoryKey) {
     return [todayLive, ...history.slice(1)];
   }
@@ -420,7 +422,7 @@ export default function DashboardPage() {
                   const ratio = Math.max(0, Math.min(1, (Number(day.workedSeconds) || 0) / TARGET_WORK_SECONDS));
                   return (
                     <div className="track-bar-row" key={`bar-${day.day}`}>
-                      <span className="track-bar-label">{WORKDAY_KEYS[new Date(day.day).getDay()]}</span>
+                      <span className="track-bar-label">{WORKDAY_KEYS[parseDayKey(day.day)?.getDay() ?? 0]}</span>
                       <div className="track-bar-rail">
                         <div className="track-bar-fill" style={{ width: `${Math.round(ratio * 100)}%` }} />
                       </div>

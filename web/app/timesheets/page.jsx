@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import WorkspaceShell from "@/components/workspace-shell";
+import { parseDayKey } from "@/lib/day";
 
 function secondsToClock(seconds) {
   const safe = Math.max(0, Number(seconds) || 0);
@@ -14,6 +15,11 @@ function secondsToClock(seconds) {
 
 function secondsToHoursInput(seconds) {
   return (Math.max(0, Number(seconds) || 0) / 3600).toFixed(2);
+}
+
+function formatDayDisplay(dayKey) {
+  const day = parseDayKey(dayKey);
+  return day ? day.toLocaleDateString() : dayKey;
 }
 
 function formatTime(value) {
@@ -350,7 +356,7 @@ export default function TimesheetsPage() {
                       const savingThisRow = savingOverrideKey === key;
                       return (
                         <tr key={summary.day}>
-                          <td>{new Date(summary.day).toLocaleDateString()}</td>
+                          <td>{formatDayDisplay(summary.day)}</td>
                           <td>{formatTime(summary.firstClockIn)}</td>
                           <td>{formatTime(summary.lastClockOut)}</td>
                           <td>
