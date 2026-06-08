@@ -25,6 +25,56 @@ function buildSession(type, startAt, endAt = null) {
   };
 }
 
+export function createEmptySummary(day) {
+  return {
+    day: formatDayKey(day),
+    firstClockIn: null,
+    lastClockOut: null,
+    workedSeconds: 0,
+    breakSeconds: 0,
+    workedMinutes: 0,
+    breakMinutes: 0,
+    status: "OUT",
+    sessions: [],
+  };
+}
+
+function ensureSummary(summaries, day) {
+  const key = formatDayKey(day);
+  if (!summaries.has(key)) {
+    summaries.set(key, createEmptySummary(day));
+  }
+  return summaries.get(key);
+}
+
+function appendSession(summary, type, startAt, endAt = null) {
+  const session = buildSession(type, startAt, endAt);
+  summary.sessions.push(session);
+  if (type === "WORK") {
+    summary.workedSeconds += session.durationSeconds;
+    summary.workedMinutes = Math.floor(summary.workedSeconds / 60);
+    return;
+  }
+  summary.breakSeconds += session.durationSeconds;
+  summary.breakMinutes = Math.floor(summary.breakSeconds / 60);
+}
+
+function closeActiveSummary(summary, workStart, breakStart, closedAt) {
+  if (!summary) {
+    return;
+  }
+
+  if (workStart) {
+    appendSession(summary, "WORK", workStart, closedAt);
+  }
+  if (breakStart) {
+    appendSession(summary, "BREAK", breakStart, closedAt);
+  }
+
+  summary.lastClockOut = closedAt.toISOString();
+  summary.status = "OUT";
+}
+
 export function deriveWorkStatus(events) {
   let status = "OUT";
 
@@ -122,6 +172,107 @@ export function summarizeDay(day, events) {
     breakMinutes: Math.floor(breakSeconds / 60),
     status,
     sessions,
+  };
+}
+
+export function summarizeEventsByShiftDay(events) {
+  const sorted = [...events].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
+  const summaries = new Map();
+
+  let currentSummary = null;
+  let lastWorkStart = null;
+  let lastBreakStart = null;
+
+  for (const event of sorted) {
+    if (event.type === ClockEventType.CLOCK_IN) {
+      if (currentSummary) {
+        closeActiveSummary(currentSummary, lastWorkStart, lastBreakStart, event.occurredAt);
+      }
+      currentSummary = ensureSummary(summaries, event.occurredAt);
+      if (!currentSummary.firstClockIn) {
+        currentSummary.firstClockIn = event.occurredAt.toISOString();
+      }
+      currentSummary.status = "WORKING";
+      lastWorkStart = event.occurredAt;
+      lastBreakStart = null;
+      continue;
+    }
+
+    if (event.type === ClockEventType.BREAK_START && currentSummary && lastWorkStart) {
+      appendSession(currentSummary, "WORK", lastWorkStart, event.occurredAt);
+      currentSummary.status = "ON_BREAK";
+      lastWorkStart = null;
+      lastBreakStart = event.occurredAt;
+      continue;
+    }
+
+    if (event.type === ClockEventType.BREAK_END && currentSummary && lastBreakStart) {
+      appendSession(currentSummary, "BREAK", lastBreakStart, event.occurredAt);
+      currentSummary.status = "WORKING";
+      lastBreakStart = null;
+      lastWorkStart = event.occurredAt;
+      continue;
+    }
+
+    if (event.type === ClockEventType.CLOCK_OUT && currentSummary) {
+      closeActiveSummary(currentSummary, lastWorkStart, lastBreakStart, event.occurredAt);
+      currentSummary = null;
+      lastWorkStart = null;
+      lastBreakStart = null;
+    }
+  }
+
+  if (currentSummary && lastWorkStart) {
+    appendSession(currentSummary, "WORK", lastWorkStart);
+    currentSummary.status = "WORKING";
+  } else if (currentSummary && lastBreakStart) {
+    appendSession(currentSummary, "BREAK", lastBreakStart);
+    currentSummary.status = "ON_BREAK";
+  }
+
+  return summaries;
+}
+
+export function getActiveSummary(summaries) {
+  let activeSummary = null;
+  for (const summary of summaries.values()) {
+    if (summary.status !== "OUT" && summary.sessions.some((session) => session.isOpen)) {
+      activeSummary = summary;
+    }
+  }
+  return activeSummary;
+}
+
+export function getCurrentSummaryAndEvents(now, events) {
+  const summaries = summarizeEventsByShiftDay(events);
+  const activeSummary = getActiveSummary(summaries);
+
+  if (activeSummary) {
+    const activeStartMs = activeSummary.firstClockIn ? new Date(activeSummary.firstClockIn).getTime() : null;
+    const activeEvents =
+      activeStartMs == null
+        ? []
+        : events.filter((event) => event.occurredAt.getTime() >= activeStartMs);
+
+    return {
+      events: activeEvents,
+      summary: activeSummary,
+      summaries,
+    };
+  }
+
+  const daySummary = summaries.get(formatDayKey(now)) ?? createEmptySummary(now);
+  const dayStart = startOfDay(now).getTime();
+  const dayEnd = endOfDay(now).getTime();
+  const dayEvents = events.filter((event) => {
+    const occurredAtMs = event.occurredAt.getTime();
+    return occurredAtMs >= dayStart && occurredAtMs < dayEnd;
+  });
+
+  return {
+    events: dayEvents,
+    summary: daySummary,
+    summaries,
   };
 }
 

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { formatDayKey } from "@/lib/day";
 import { prisma } from "@/lib/prisma";
-import { summarizeDay, startOfDay } from "@/lib/time";
+import { createEmptySummary, startOfDay, summarizeEventsByShiftDay } from "@/lib/time";
 
 function parseDays(raw) {
   const value = Number(raw ?? "14");
@@ -31,25 +31,18 @@ export async function GET(request) {
       userId,
       occurredAt: {
         gte: rangeStart,
-        lt: rangeEnd,
       },
     },
     orderBy: { occurredAt: "asc" },
   });
 
-  const grouped = new Map();
-  for (const event of events) {
-    const key = formatDayKey(event.occurredAt);
-    const current = grouped.get(key) ?? [];
-    current.push(event);
-    grouped.set(key, current);
-  }
+  const grouped = summarizeEventsByShiftDay(events);
 
   const summaries = [];
   for (let i = 0; i < days; i += 1) {
     const day = new Date(rangeStart.getTime() + i * 24 * 60 * 60 * 1000);
     const key = formatDayKey(day);
-    summaries.push(summarizeDay(day, grouped.get(key) ?? []));
+    summaries.push(grouped.get(key) ?? createEmptySummary(day));
   }
 
   summaries.reverse();

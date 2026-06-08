@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-auth";
 import { formatDayKey, formatUtcDayKey } from "@/lib/day";
 import { prisma } from "@/lib/prisma";
-import { startOfDay, summarizeDay } from "@/lib/time";
+import { createEmptySummary, startOfDay, summarizeEventsByShiftDay } from "@/lib/time";
 
 function hasRequiredModels() {
   return (
@@ -59,19 +59,13 @@ function parseRange(searchParams) {
 }
 
 function summarizeEmployeeDays(events, rangeStart, days, overridesMap) {
-  const grouped = new Map();
-  for (const event of events) {
-    const key = formatDayKey(event.occurredAt);
-    const current = grouped.get(key) ?? [];
-    current.push(event);
-    grouped.set(key, current);
-  }
+  const grouped = summarizeEventsByShiftDay(events);
 
   const summaries = [];
   for (let i = 0; i < days; i += 1) {
     const day = new Date(rangeStart.getTime() + i * 86400000);
     const key = formatDayKey(day);
-    const baseSummary = summarizeDay(day, grouped.get(key) ?? []);
+    const baseSummary = grouped.get(key) ?? createEmptySummary(day);
     const overrideWorkedSeconds = overridesMap.get(key);
     const hasOverride = Number.isFinite(overrideWorkedSeconds);
     const workedSeconds = hasOverride ? Math.max(0, Number(overrideWorkedSeconds) || 0) : baseSummary.workedSeconds;
@@ -128,7 +122,6 @@ export async function GET(request) {
         userId: { in: users.map((user) => user.id) },
         occurredAt: {
           gte: rangeStart,
-          lt: rangeEndExclusive,
         },
       },
       orderBy: { occurredAt: "asc" },
