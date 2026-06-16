@@ -146,3 +146,54 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: "Unable to add project member." }, { status: 400 });
   }
 }
+
+export async function DELETE(request, { params }) {
+  const routeParams = await params;
+  const projectId = routeParams?.projectId;
+  if (!projectId) {
+    return NextResponse.json({ error: "Project id is required." }, { status: 400 });
+  }
+
+  let user;
+  try {
+    user = await requireRequestUser(request);
+    await requireProjectAccess(user.id, projectId);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error && error.message === "FORBIDDEN" ? "Forbidden." : "Unauthorized." },
+      { status: error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401 },
+    );
+  }
+
+  const canManage = await canManageProject(projectId, user.id);
+  if (!canManage) {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  }
+
+  const userId = new URL(request.url).searchParams.get("userId")?.trim();
+  if (!userId) {
+    return NextResponse.json({ error: "userId is required." }, { status: 400 });
+  }
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { ownerId: true },
+  });
+  if (project?.ownerId === userId) {
+    return NextResponse.json({ error: "The project owner cannot be removed." }, { status: 400 });
+  }
+
+  const membership = await prisma.projectMember.findUnique({
+    where: { projectId_userId: { projectId, userId } },
+    select: { id: true },
+  });
+  if (!membership) {
+    return NextResponse.json({ error: "Member not found." }, { status: 404 });
+  }
+
+  await prisma.projectMember.delete({
+    where: { projectId_userId: { projectId, userId } },
+  });
+
+  return NextResponse.json({ success: true });
+}

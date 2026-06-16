@@ -15,6 +15,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import WorkspaceShell from "@/components/workspace-shell";
+import ProjectMembers from "@/components/project-members";
 
 const priorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 
@@ -166,6 +167,7 @@ export default function ProjectBoardPage() {
     useSensor(KeyboardSensor),
   );
   const [showComposer, setShowComposer] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
   const [activeTask, setActiveTask] = useState(null);
   const [savingAttachment, setSavingAttachment] = useState(false);
   const [showAddLinkForm, setShowAddLinkForm] = useState(false);
@@ -564,14 +566,32 @@ export default function ProjectBoardPage() {
               <p>{project?.description || "Kanban workflow for project execution."}</p>
             </div>
           </div>
-          <div className="projectboard-avatars">
-            {(candidateAssignees ?? []).slice(0, 5).map((candidate) => (
-              <span key={candidate.id} className="projectboard-avatar" title={candidate.name}>
-                {initials(candidate.name)}
-              </span>
-            ))}
-          </div>
+          <button
+            type="button"
+            className="projectboard-members-trigger"
+            onClick={() => setShowMembers(true)}
+            aria-label="Manage members"
+          >
+            <span className="projectboard-avatars">
+              {(candidateAssignees ?? []).slice(0, 5).map((candidate) => (
+                <span key={candidate.id} className="projectboard-avatar" title={candidate.name}>
+                  {initials(candidate.name)}
+                </span>
+              ))}
+            </span>
+            <span className="projectboard-members-label">Members</span>
+          </button>
         </header>
+
+        {showMembers ? (
+          <ProjectMembers
+            projectId={projectId}
+            project={project}
+            currentUser={user}
+            onClose={() => setShowMembers(false)}
+            onChanged={() => loadData(false)}
+          />
+        ) : null}
 
         {showComposer ? (
           <div className="projectboard-modal-backdrop" onClick={closeComposer}>

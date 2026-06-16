@@ -34,18 +34,33 @@ Next.js 16 (App Router), React 19, **JavaScript (no TS)**, plain CSS in `web/app
 - Dark AppFlowy-inspired tokens rewritten in `:root` of `web/app/globals.css`.
 - Board lanes/cards restyled to AppFlowy: column header with count + quick add, compact rounded cards, priority pills, assignee avatars, due-date chip.
 
+### Phase 3 — per-project team-management UI  ✅ implemented
+- **New file:** `web/components/project-members.jsx` — Members drawer: list members, add by email, change role (MEMBER/MANAGER), remove. Owner/manager only; others see read-only roles.
+- **New (additive) route:** `DELETE /api/projects/[projectId]/members?userId=...` (same manage guard as `POST`; owner cannot be removed). Approved in the resume session.
+- **Edit:** `web/app/projects/[projectId]/page.jsx` — the static header avatar row is now a "Members" trigger opening the drawer; board reloads on member changes.
+
+### Phase 4 — AppFlowy-style project-create modal  ✅ implemented
+- **Edit:** `web/app/projects/page.jsx` — inline form replaced with a centered create dialog (live initials badge preview, name, description). Same `POST /api/projects`.
+- **Note:** no persisted icon/color picker — `POST /api/projects` only accepts `name`/`description` and a color/icon column would be a schema change (excluded). Badge is derived from the name, matching the card/list badge.
+
+### Phase 5 — dark-theme audit  ✅ implemented
+- Converted light-theme leftovers in `globals.css` to dark tokens: global `input/select`, `.ws-*` cards (due-dates), `.stat-card`, `.session-panel`, `.employee-dropdown`/summary (timesheets), `.chip` status pills (timeclock/users/timesheets), `.users-delete-modal`, the `.mk-review-*` kitchen review page, and the clock `.ring-track`.
+- Added component styles for the members drawer and the project-create modal.
+- Verified: eslint clean on changed files; `next build` succeeds (all routes compile, `DELETE` registered on the members route).
+
 ## Phases NOT yet done (future sessions)
-- **Phase 3:** per-project team-management UI (`components/project-members.jsx`) wired to existing `GET/POST /api/projects/[projectId]/members`; optional additive `DELETE` member route.
-- **Phase 4:** AppFlowy-style project-create modal (frontend only, same `POST /api/projects`).
-- **Phase 5 audit:** sweep `globals.css` (~2,839 lines) for hardcoded hex values bypassing tokens; verify every route under the dark theme.
+- **Visual verification pass:** the audit fixed readability (no more white-on-dark surfaces), but each route should still be eyeballed in a running dev server for polish (spacing, accent consistency).
 - **Optional schema change (needs approval):** `Task.position` for persistent within-column ordering.
 
 ## Files touched on this branch
 | File | Type |
 |---|---|
 | `web/app/api/tasks/[taskId]/move/route.js` | new (additive API) |
-| `web/app/projects/[projectId]/page.jsx` | edit (DnD board + AppFlowy cards) |
-| `web/app/globals.css` | edit (dark AppFlowy tokens + board styles) |
+| `web/app/api/projects/[projectId]/members/route.js` | edit (additive `DELETE`) |
+| `web/components/project-members.jsx` | new (members drawer) |
+| `web/app/projects/[projectId]/page.jsx` | edit (DnD board + AppFlowy cards + members trigger) |
+| `web/app/projects/page.jsx` | edit (project-create modal) |
+| `web/app/globals.css` | edit (dark AppFlowy tokens + board/members/create styles + audit) |
 | `web/package.json` / lock | add `@dnd-kit/*` |
 | `APPFLOWY_REDESIGN.md` | this doc |
 

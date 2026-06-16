@@ -27,6 +27,21 @@ export default function ProjectsPage() {
     description: "",
   });
 
+  useEffect(() => {
+    if (!showCreate) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function onKeyDown(event) {
+      if (event.key === "Escape" && !creating) setShowCreate(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showCreate, creating]);
+
   const loadData = useCallback(async (showSkeleton = true) => {
     if (showSkeleton) {
       setLoadingProjects(true);
@@ -108,32 +123,70 @@ export default function ProjectsPage() {
       <section className="projects-shell">
         <header className="projects-header">
           <h1>Browse projects</h1>
-          <button type="button" className="projects-create-btn" onClick={() => setShowCreate((value) => !value)}>
+          <button type="button" className="projects-create-btn" onClick={() => setShowCreate(true)}>
             + Create project
           </button>
         </header>
 
         {showCreate ? (
-          <section className="projects-create-panel">
-            <form onSubmit={onCreateProject}>
-              <div className="row">
-                <input
-                  required
-                  placeholder="Project name"
-                  value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                />
-                <input
-                  placeholder="Description (optional)"
-                  value={form.description}
-                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                />
-                <button type="submit" disabled={creating}>
-                  {creating ? "Creating..." : "Create"}
-                </button>
-              </div>
-            </form>
-          </section>
+          <div
+            className="project-create-backdrop"
+            onClick={() => (creating ? null : setShowCreate(false))}
+          >
+            <section
+              className="project-create-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Create project"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="project-create-head">
+                <span className="project-create-badge">{initials(form.name)}</span>
+                <div>
+                  <h2>Create a project</h2>
+                  <p>Spin up a board with To Do, In Progress, Review, and Done columns.</p>
+                </div>
+              </header>
+
+              <form className="project-create-body" onSubmit={onCreateProject}>
+                <label className="project-create-field">
+                  <span>Project name</span>
+                  <input
+                    required
+                    autoFocus
+                    placeholder="e.g. Spring Menu Launch"
+                    value={form.name}
+                    disabled={creating}
+                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  />
+                </label>
+
+                <label className="project-create-field">
+                  <span>Description (optional)</span>
+                  <textarea
+                    placeholder="What is this project about?"
+                    value={form.description}
+                    disabled={creating}
+                    onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                  />
+                </label>
+
+                <div className="project-create-footer">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setShowCreate(false)}
+                    disabled={creating}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={creating}>
+                    {creating ? "Creating..." : "Create project"}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
         ) : null}
 
         <div className="projects-search-row">
