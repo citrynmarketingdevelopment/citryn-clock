@@ -1,7 +1,9 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import ProjectCreateDialog from "@/components/project-create-dialog";
 
 function classNames(...values) {
   return values.filter(Boolean).join(" ");
@@ -16,18 +18,32 @@ function isActive(pathname, href) {
 
 export default function WorkspaceShell({ user, onLogout, children }) {
   const pathname = usePathname();
+  const router = useRouter();
   const role = user?.role;
 
-  const navItems = [
-    { href: "/projects", label: "Projects" },
-    { href: "/my-tasks", label: "My Tasks" },
-    { href: "/mojos-kitchen", label: "Mojo's Kitchen" },
-  ];
+  const [projects, setProjects] = useState([]);
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
 
+  const loadProjects = useCallback(async () => {
+    const response = await fetch("/api/projects", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    setProjects(data.projects ?? []);
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    loadProjects().catch(() => {});
+  }, [user?.id, loadProjects]);
+
+  // Secondary nav (Projects is rendered as its own expandable group below).
+  const navItems = [{ href: "/my-tasks", label: "My Tasks" }];
   if (role !== "ADMIN") {
-    navItems.splice(2, 0, { href: "/timeclock", label: "Timeclock" });
+    navItems.push({ href: "/timeclock", label: "Timeclock" });
   }
-
+  navItems.push({ href: "/due-dates", label: "Due Dates" });
+  navItems.push({ href: "/mojos-kitchen", label: "Mojo's Kitchen" });
   if (role === "ADMIN") {
     navItems.push({ href: "/timesheets", label: "Timesheets" });
     navItems.push({ href: "/users", label: "Users" });
@@ -42,6 +58,53 @@ export default function WorkspaceShell({ user, onLogout, children }) {
         </div>
 
         <nav className="ws-nav">
+          <div className="ws-nav-group">
+            <div className="ws-nav-group-bar">
+              <button
+                type="button"
+                className="ws-nav-group-head"
+                onClick={() => setProjectsOpen((value) => !value)}
+                aria-expanded={projectsOpen}
+              >
+                <span className={classNames("ws-nav-group-caret", projectsOpen && "open")}>›</span>
+                Projects
+              </button>
+              <button
+                type="button"
+                className="ws-nav-group-add"
+                onClick={() => setShowCreate(true)}
+                aria-label="New project"
+                title="New project"
+              >
+                +
+              </button>
+            </div>
+
+            {projectsOpen ? (
+              <div className="ws-proj-list">
+                {projects.length === 0 ? (
+                  <p className="ws-proj-empty">No projects yet.</p>
+                ) : (
+                  projects.map((project) => (
+                    <Link
+                      key={project.id}
+                      href={`/projects/${project.id}`}
+                      className={classNames("ws-proj-item", pathname === `/projects/${project.id}` && "active")}
+                    >
+                      {project.name}
+                    </Link>
+                  ))
+                )}
+                <Link
+                  href="/projects"
+                  className={classNames("ws-proj-item", "ws-proj-add", pathname === "/projects" && "active")}
+                >
+                  All projects
+                </Link>
+              </div>
+            ) : null}
+          </div>
+
           {navItems.map((item) => (
             <Link
               key={item.href}
@@ -70,6 +133,17 @@ export default function WorkspaceShell({ user, onLogout, children }) {
       </aside>
 
       <main className="ws-content">{children}</main>
+
+      {showCreate ? (
+        <ProjectCreateDialog
+          onClose={() => setShowCreate(false)}
+          onCreated={(project) => {
+            setShowCreate(false);
+            setProjects((current) => [{ ...project, taskCount: 0, dueSoonCount: 0 }, ...current]);
+            router.push(`/projects/${project.id}`);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Image from "next/image";
 import {
   DndContext,
   DragOverlay,
@@ -16,8 +15,21 @@ import {
 } from "@dnd-kit/core";
 import WorkspaceShell from "@/components/workspace-shell";
 import ProjectMembers from "@/components/project-members";
+import ViewSwitcher from "@/components/view-switcher";
+import TaskListView from "@/components/task-list-view";
+import MonthCalendar from "@/components/month-calendar";
+import TaskDetailDialog from "@/components/task-detail-dialog";
+import { TaskCardBody } from "@/components/task-card";
+import { addColumn, deleteColumn, renameColumn, reorderColumns, updateTask } from "@/lib/task-client";
+import { initials, isTaskCompleted, startOfMonth } from "@/lib/task-format";
 
 const priorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+
+const boardViews = [
+  { key: "board", label: "Board" },
+  { key: "list", label: "List" },
+  { key: "calendar", label: "Calendar" },
+];
 
 function groupTasksByColumn(columns, tasks) {
   const map = new Map(columns.map((column) => [column.id, []]));
@@ -29,15 +41,6 @@ function groupTasksByColumn(columns, tasks) {
   return map;
 }
 
-function initials(name) {
-  return (name || "?")
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 async function parseJsonSafe(response) {
   const text = await response.text();
   try {
@@ -45,53 +48,6 @@ async function parseJsonSafe(response) {
   } catch {
     return { error: `Unexpected response (${response.status}).` };
   }
-}
-
-function formatDueDate(value) {
-  if (!value) return null;
-  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-// Inner content of a board card, shared between the live card and the drag overlay.
-function BoardCardBody({ task, completed }) {
-  const dueLabel = formatDueDate(task.dueDate);
-  const assignees = task.assignees ?? [];
-  return (
-    <>
-      <div className="projectboard-card-head">
-        <div className="projectboard-card-title">{task.title}</div>
-        <span className={`task-priority-chip ${task.priority.toLowerCase()}`}>{task.priority}</span>
-      </div>
-
-      <div className="projectboard-card-meta">
-        {dueLabel ? <span className="projectboard-card-due">{dueLabel}</span> : null}
-        {typeof task.laborMinutes === "number" ? (
-          <span className="projectboard-card-labor">{task.laborMinutes}m</span>
-        ) : null}
-        {task.attachments?.length ? (
-          <span className="projectboard-card-attachment-count">
-            {task.attachments.length} file{task.attachments.length > 1 ? "s" : ""}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="projectboard-card-foot">
-        {completed ? <span className="task-done-note">Completed</span> : <span />}
-        {assignees.length ? (
-          <div className="projectboard-card-avatars">
-            {assignees.slice(0, 3).map((assignee) => (
-              <span key={assignee.id} className="projectboard-card-avatar" title={assignee.name}>
-                {initials(assignee.name)}
-              </span>
-            ))}
-            {assignees.length > 3 ? (
-              <span className="projectboard-card-avatar more">+{assignees.length - 3}</span>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </>
-  );
 }
 
 // Draggable card. A small activation distance keeps plain clicks working (open details).
@@ -116,13 +72,71 @@ function BoardCard({ task, completed, onOpen }) {
       {...attributes}
       {...listeners}
     >
-      <BoardCardBody task={task} completed={completed} />
+      <TaskCardBody task={task} completed={completed} />
     </button>
   );
 }
 
+// Lane header with inline rename + reorder/delete controls (managers/owner only).
+function LaneHeader({ column, count, canManage, onRename, onDelete, onMoveLeft, onMoveRight, isFirst, isLast }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(column.name);
+
+  useEffect(() => {
+    setName(column.name);
+  }, [column.name]);
+
+  function commit() {
+    setEditing(false);
+    const next = name.trim();
+    if (next && next !== column.name) onRename(next);
+    else setName(column.name);
+  }
+
+  return (
+    <header className="projectboard-lane-head">
+      {editing ? (
+        <input
+          className="projectboard-lane-rename"
+          autoFocus
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+              setName(column.name);
+              setEditing(false);
+            }
+          }}
+        />
+      ) : (
+        <h3 className={canManage ? "editable" : ""} onClick={() => canManage && setEditing(true)}>
+          {column.name}
+        </h3>
+      )}
+      <div className="projectboard-lane-head-right">
+        <span className="projectboard-lane-count">{count}</span>
+        {canManage ? (
+          <div className="projectboard-lane-actions">
+            <button type="button" onClick={onMoveLeft} disabled={isFirst} aria-label="Move column left">
+              ‹
+            </button>
+            <button type="button" onClick={onMoveRight} disabled={isLast} aria-label="Move column right">
+              ›
+            </button>
+            <button type="button" onClick={onDelete} aria-label="Delete column">
+              ✕
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </header>
+  );
+}
+
 // Droppable lane (column). Tasks dropped here are moved into this column.
-function DroppableLane({ column, tasks, isCompleted, onOpenTask, onAddTask }) {
+function DroppableLane({ column, tasks, isCompleted, onOpenTask, onAddTask, canManage, columnControls }) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
     data: { type: "column", columnId: column.id },
@@ -130,10 +144,7 @@ function DroppableLane({ column, tasks, isCompleted, onOpenTask, onAddTask }) {
 
   return (
     <div className="projectboard-lane">
-      <header className="projectboard-lane-head">
-        <h3>{column.name}</h3>
-        <span>{tasks.length}</span>
-      </header>
+      <LaneHeader column={column} count={tasks.length} canManage={canManage} {...columnControls} />
 
       <div ref={setNodeRef} className={`projectboard-lane-stack ${isOver ? "drop-over" : ""}`}>
         {tasks.map((task) => (
@@ -159,8 +170,12 @@ export default function ProjectBoardPage() {
   const [error, setError] = useState(null);
   const [loadingBoard, setLoadingBoard] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [updatingTask, setUpdatingTask] = useState(false);
   const [activeId, setActiveId] = useState(null);
+  const [view, setView] = useState("board");
+  const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [newColumnName, setNewColumnName] = useState("");
+  const [columnBusy, setColumnBusy] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -169,18 +184,7 @@ export default function ProjectBoardPage() {
   const [showComposer, setShowComposer] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [activeTask, setActiveTask] = useState(null);
-  const [savingAttachment, setSavingAttachment] = useState(false);
-  const [showAddLinkForm, setShowAddLinkForm] = useState(false);
-  const [showAddImageForm, setShowAddImageForm] = useState(false);
   const [assigneeQuery, setAssigneeQuery] = useState("");
-  const [linkAttachmentForm, setLinkAttachmentForm] = useState({
-    url: "",
-    label: "",
-  });
-  const [imageAttachmentForm, setImageAttachmentForm] = useState({
-    label: "",
-    file: null,
-  });
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -238,30 +242,20 @@ export default function ProjectBoardPage() {
     loadData().catch(() => setError("Unable to load project board."));
   }, [loadData, projectId]);
 
+  // Scroll lock + Esc for the create-task composer (the detail dialog manages its own).
   useEffect(() => {
-    if (!showComposer && !activeTask) return undefined;
-
+    if (!showComposer) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
     function onKeyDown(event) {
-      if (event.key === "Escape") {
-        if (showComposer && !saving) {
-          setShowComposer(false);
-          return;
-        }
-        if (activeTask && !savingAttachment) {
-          setActiveTask(null);
-        }
-      }
+      if (event.key === "Escape" && !saving) setShowComposer(false);
     }
-
     window.addEventListener("keydown", onKeyDown);
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [activeTask, saving, savingAttachment, showComposer]);
+  }, [saving, showComposer]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -285,29 +279,6 @@ export default function ProjectBoardPage() {
     setShowComposer(false);
   }
 
-  function openTaskDetails(task) {
-    setShowAddLinkForm(false);
-    setShowAddImageForm(false);
-    setLinkAttachmentForm({
-      url: "",
-      label: "",
-    });
-    setImageAttachmentForm({
-      label: "",
-      file: null,
-    });
-    setActiveTask(task);
-  }
-
-  function closeTaskDetails() {
-    if (savingAttachment) return;
-    setActiveTask(null);
-  }
-
-  function isTaskCompleted(task) {
-    return Boolean(task?.completedAt);
-  }
-
   function mergeUpdatedTask(updatedTask) {
     setProject((current) => {
       if (!current) return current;
@@ -328,6 +299,14 @@ export default function ProjectBoardPage() {
           item.id === taskId ? { ...item, columnId } : item,
         ),
       };
+    });
+  }
+
+  function setColumnsLocally(updater) {
+    setProject((current) => {
+      if (!current) return current;
+      const columns = typeof updater === "function" ? updater(current.columns ?? []) : updater;
+      return { ...current, columns };
     });
   }
 
@@ -369,105 +348,80 @@ export default function ProjectBoardPage() {
     }
   }
 
-  async function updateTaskCompletion(taskId, completed) {
-    setUpdatingTask(true);
+  async function toggleComplete(task, completed) {
     setError(null);
     try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed }),
-      });
-      const data = await parseJsonSafe(response);
-      if (!response.ok || !data.task) {
-        setError(data.error ?? "Unable to update task.");
-        return;
-      }
-      mergeUpdatedTask(data.task);
-    } catch {
-      setError("Unable to update task.");
-    } finally {
-      setUpdatingTask(false);
+      const updated = await updateTask(task.id, { completed });
+      mergeUpdatedTask(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update task.");
     }
   }
 
-  async function onAddLinkAttachment(event) {
-    event.preventDefault();
-    if (!activeTask) return;
-    if (!linkAttachmentForm.url.trim()) {
-      setError("Link URL is required.");
+  // --- Column editing ---
+  async function handleAddColumn() {
+    const name = newColumnName.trim();
+    if (!name) {
+      setAddingColumn(false);
       return;
     }
-
-    setSavingAttachment(true);
+    setColumnBusy(true);
     setError(null);
     try {
-      const body = new FormData();
-      body.append("type", "LINK");
-      if (linkAttachmentForm.label.trim()) {
-        body.append("label", linkAttachmentForm.label.trim());
-      }
-      body.append("url", linkAttachmentForm.url.trim());
-
-      const response = await fetch(`/api/tasks/${activeTask.id}/attachments`, {
-        method: "POST",
-        body,
-      });
-      const data = await parseJsonSafe(response);
-      if (!response.ok || !data.task) {
-        setError(data.error ?? "Unable to add attachment.");
-        return;
-      }
-
-      mergeUpdatedTask(data.task);
-      setLinkAttachmentForm({
-        url: "",
-        label: "",
-      });
-    } catch {
-      setError("Unable to add attachment.");
+      const column = await addColumn(projectId, name);
+      setColumnsLocally((columns) => [...columns, column]);
+      setNewColumnName("");
+      setAddingColumn(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to add column.");
     } finally {
-      setSavingAttachment(false);
+      setColumnBusy(false);
     }
   }
 
-  async function onAddImageAttachment(event) {
-    event.preventDefault();
-    if (!activeTask) return;
-    if (!imageAttachmentForm.file) {
-      setError("Image file is required.");
-      return;
-    }
-
-    setSavingAttachment(true);
+  async function handleRenameColumn(columnId, name) {
     setError(null);
     try {
-      const body = new FormData();
-      body.append("type", "IMAGE");
-      if (imageAttachmentForm.label.trim()) {
-        body.append("label", imageAttachmentForm.label.trim());
-      }
-      body.append("file", imageAttachmentForm.file);
+      const column = await renameColumn(projectId, columnId, name);
+      setColumnsLocally((columns) => columns.map((item) => (item.id === columnId ? { ...item, name: column.name } : item)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to rename column.");
+    }
+  }
 
-      const response = await fetch(`/api/tasks/${activeTask.id}/attachments`, {
-        method: "POST",
-        body,
+  async function handleDeleteColumn(columnId) {
+    if (!window.confirm("Delete this column? Tasks in it will become unassigned.")) return;
+    setError(null);
+    try {
+      await deleteColumn(projectId, columnId);
+      setProject((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          columns: (current.columns ?? []).filter((item) => item.id !== columnId),
+          tasks: (current.tasks ?? []).map((task) => (task.columnId === columnId ? { ...task, columnId: null } : task)),
+        };
       });
-      const data = await parseJsonSafe(response);
-      if (!response.ok || !data.task) {
-        setError(data.error ?? "Unable to add attachment.");
-        return;
-      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete column.");
+    }
+  }
 
-      mergeUpdatedTask(data.task);
-      setImageAttachmentForm({
-        label: "",
-        file: null,
-      });
-    } catch {
-      setError("Unable to add attachment.");
-    } finally {
-      setSavingAttachment(false);
+  async function moveColumn(index, direction) {
+    const columns = project?.columns ?? [];
+    const target = index + direction;
+    if (target < 0 || target >= columns.length) return;
+    const ordered = [...columns];
+    const [moved] = ordered.splice(index, 1);
+    ordered.splice(target, 0, moved);
+    setColumnsLocally(ordered); // optimistic
+    setError(null);
+    try {
+      const updated = await reorderColumns(projectId, ordered.map((column) => column.id));
+      setColumnsLocally(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to reorder columns.");
+      loadData(false);
     }
   }
 
@@ -555,6 +509,14 @@ export default function ProjectBoardPage() {
     });
   }, [candidateAssignees, assigneeQuery]);
 
+  const canManage = useMemo(() => {
+    if (!user || !project) return false;
+    if (project.owner?.id === user.id) return true;
+    return (project.members ?? []).some((member) => member.user.id === user.id && member.role === "MANAGER");
+  }, [user, project]);
+
+  const columns = project?.columns ?? [];
+
   return (
     <WorkspaceShell user={user} onLogout={logout}>
       <section className="projectboard-shell">
@@ -566,21 +528,27 @@ export default function ProjectBoardPage() {
               <p>{project?.description || "Kanban workflow for project execution."}</p>
             </div>
           </div>
-          <button
-            type="button"
-            className="projectboard-members-trigger"
-            onClick={() => setShowMembers(true)}
-            aria-label="Manage members"
-          >
-            <span className="projectboard-avatars">
-              {(candidateAssignees ?? []).slice(0, 5).map((candidate) => (
-                <span key={candidate.id} className="projectboard-avatar" title={candidate.name}>
-                  {initials(candidate.name)}
-                </span>
-              ))}
-            </span>
-            <span className="projectboard-members-label">Members</span>
-          </button>
+          <div className="projectboard-top-actions">
+            <ViewSwitcher views={boardViews} active={view} onChange={setView} />
+            <button type="button" className="projectboard-add-btn" onClick={() => openComposer()}>
+              + New task
+            </button>
+            <button
+              type="button"
+              className="projectboard-members-trigger"
+              onClick={() => setShowMembers(true)}
+              aria-label="Manage members"
+            >
+              <span className="projectboard-avatars">
+                {(candidateAssignees ?? []).slice(0, 5).map((candidate) => (
+                  <span key={candidate.id} className="projectboard-avatar" title={candidate.name}>
+                    {initials(candidate.name)}
+                  </span>
+                ))}
+              </span>
+              <span className="projectboard-members-label">Members</span>
+            </button>
+          </div>
         </header>
 
         {showMembers ? (
@@ -670,7 +638,7 @@ export default function ProjectBoardPage() {
                         value={form.columnId}
                         onChange={(event) => setForm((current) => ({ ...current, columnId: event.target.value }))}
                       >
-                        {(project?.columns ?? []).map((column) => (
+                        {columns.map((column) => (
                           <option key={column.id} value={column.id}>
                             {column.name}
                           </option>
@@ -747,209 +715,14 @@ export default function ProjectBoardPage() {
         ) : null}
 
         {activeTask ? (
-          <div className="taskview-backdrop" onClick={closeTaskDetails}>
-            <section
-              className="taskview-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Task details"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header className="taskview-header">
-                <h2>{activeTask.title}</h2>
-                <div className="taskview-header-actions">
-                  <button
-                    type="button"
-                    className={isTaskCompleted(activeTask) ? "secondary" : ""}
-                    disabled={updatingTask}
-                    onClick={() => updateTaskCompletion(activeTask.id, !isTaskCompleted(activeTask))}
-                  >
-                    {updatingTask
-                      ? "Saving..."
-                      : isTaskCompleted(activeTask)
-                        ? "Mark as undone"
-                        : "Mark complete"}
-                  </button>
-                  <button type="button" className="taskview-close" onClick={closeTaskDetails}>
-                    Close
-                  </button>
-                </div>
-              </header>
-
-              <div className="taskview-grid">
-                <div className="taskview-row">
-                  <span>Status</span>
-                  <strong>
-                    {isTaskCompleted(activeTask)
-                      ? `Completed${activeTask.completedAt ? ` on ${new Date(activeTask.completedAt).toLocaleString()}` : ""}`
-                      : "Open"}
-                  </strong>
-                </div>
-                <div className="taskview-row">
-                  <span>Due date</span>
-                  <strong>{activeTask.dueDate ? new Date(activeTask.dueDate).toLocaleDateString() : "No date"}</strong>
-                </div>
-                <div className="taskview-row">
-                  <span>Priority</span>
-                  <strong>{activeTask.priority}</strong>
-                </div>
-                <div className="taskview-row">
-                  <span>Labor</span>
-                  <strong>{activeTask.laborMinutes} minutes</strong>
-                </div>
-                <div className="taskview-row">
-                  <span>Column</span>
-                  <strong>{project?.columns?.find((column) => column.id === activeTask.columnId)?.name || "Unassigned"}</strong>
-                </div>
-                <div className="taskview-row">
-                  <span>Assignees</span>
-                  <strong>
-                    {activeTask.assignees?.length
-                      ? activeTask.assignees.map((assignee) => assignee.name).join(", ")
-                      : "No assignees"}
-                  </strong>
-                </div>
-              </div>
-
-              <section className="taskview-section">
-                <h3>Description</h3>
-                <p>{activeTask.description}</p>
-              </section>
-
-              <section className="taskview-section">
-                <h3>Attachments</h3>
-                <div className="taskview-attachment-actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={savingAttachment}
-                    onClick={() => setShowAddImageForm((current) => !current)}
-                  >
-                    + Add attachment
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={savingAttachment}
-                    onClick={() => setShowAddLinkForm((current) => !current)}
-                  >
-                    + Add link
-                  </button>
-                </div>
-
-                {showAddImageForm ? (
-                  <form className="taskview-attachment-form" onSubmit={onAddImageAttachment}>
-                    <input
-                      required
-                      type="file"
-                      accept="image/*"
-                      disabled={savingAttachment}
-                      onChange={(event) =>
-                        setImageAttachmentForm((current) => ({
-                          ...current,
-                          file: event.target.files?.[0] ?? null,
-                        }))
-                      }
-                    />
-                    <input
-                      type="text"
-                      placeholder="Optional label"
-                      value={imageAttachmentForm.label}
-                      disabled={savingAttachment}
-                      onChange={(event) =>
-                        setImageAttachmentForm((current) => ({
-                          ...current,
-                          label: event.target.value,
-                        }))
-                      }
-                    />
-                    <button type="submit" disabled={savingAttachment}>
-                      {savingAttachment ? "Saving..." : "Save attachment"}
-                    </button>
-                  </form>
-                ) : null}
-
-                {showAddLinkForm ? (
-                  <form className="taskview-attachment-form" onSubmit={onAddLinkAttachment}>
-                    <input
-                      required
-                      type="url"
-                      placeholder="https://example.com"
-                      value={linkAttachmentForm.url}
-                      disabled={savingAttachment}
-                      onChange={(event) =>
-                        setLinkAttachmentForm((current) => ({
-                          ...current,
-                          url: event.target.value,
-                        }))
-                      }
-                    />
-                    <input
-                      type="text"
-                      placeholder="Optional label"
-                      value={linkAttachmentForm.label}
-                      disabled={savingAttachment}
-                      onChange={(event) =>
-                        setLinkAttachmentForm((current) => ({
-                          ...current,
-                          label: event.target.value,
-                        }))
-                      }
-                    />
-                    <button type="submit" disabled={savingAttachment}>
-                      {savingAttachment ? "Saving..." : "Save link"}
-                    </button>
-                  </form>
-                ) : null}
-
-                <div className="taskview-attachment-list">
-                  {(activeTask.attachments ?? []).length === 0 ? (
-                    <p className="muted">No attachments yet.</p>
-                  ) : (
-                    (activeTask.attachments ?? []).map((attachment) => (
-                      <article key={attachment.id} className="taskview-attachment-item">
-                        {attachment.type === "IMAGE" ? (
-                          <a
-                            className="taskview-attachment-thumb-link"
-                            href={`/api/task-attachments/${attachment.id}/file`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <Image
-                              className="taskview-attachment-thumb"
-                              src={`/api/task-attachments/${attachment.id}/file`}
-                              alt={attachment.label || "Task attachment image"}
-                              width={110}
-                              height={72}
-                              loading="lazy"
-                            />
-                          </a>
-                        ) : null}
-
-                        <div className="taskview-attachment-main">
-                          <div>
-                            <strong>{attachment.label || (attachment.type === "IMAGE" ? "Image" : "Link")}</strong>
-                            <small>{attachment.type === "IMAGE" ? "Image attachment" : "Link attachment"}</small>
-                          </div>
-                          <a
-                            href={
-                              attachment.type === "IMAGE"
-                                ? `/api/task-attachments/${attachment.id}/file`
-                                : attachment.url
-                            }
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Open
-                          </a>
-                        </div>
-                      </article>
-                    ))
-                  )}
-                </div>
-              </section>
-            </section>
-          </div>
+          <TaskDetailDialog
+            task={activeTask}
+            currentUser={user}
+            canEdit
+            projectColumns={columns}
+            onClose={() => setActiveTask(null)}
+            onUpdated={mergeUpdatedTask}
+          />
         ) : null}
 
         {loadingBoard ? (
@@ -978,7 +751,7 @@ export default function ProjectBoardPage() {
               ))}
             </div>
           </section>
-        ) : (
+        ) : view === "board" ? (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCorners}
@@ -988,16 +761,68 @@ export default function ProjectBoardPage() {
           >
             <section className="projectboard-lanes-wrap">
               <div className="projectboard-lanes">
-                {(project?.columns ?? []).map((column) => (
+                {columns.map((column, index) => (
                   <DroppableLane
                     key={column.id}
                     column={column}
                     tasks={taskMap.get(column.id) ?? []}
                     isCompleted={isTaskCompleted}
-                    onOpenTask={openTaskDetails}
+                    onOpenTask={setActiveTask}
                     onAddTask={openComposer}
+                    canManage={canManage}
+                    columnControls={{
+                      onRename: (name) => handleRenameColumn(column.id, name),
+                      onDelete: () => handleDeleteColumn(column.id),
+                      onMoveLeft: () => moveColumn(index, -1),
+                      onMoveRight: () => moveColumn(index, 1),
+                      isFirst: index === 0,
+                      isLast: index === columns.length - 1,
+                    }}
                   />
                 ))}
+
+                {canManage ? (
+                  <div className="projectboard-lane projectboard-lane-new">
+                    {addingColumn ? (
+                      <div className="projectboard-newcol">
+                        <input
+                          autoFocus
+                          placeholder="Column name"
+                          value={newColumnName}
+                          disabled={columnBusy}
+                          onChange={(event) => setNewColumnName(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") handleAddColumn();
+                            if (event.key === "Escape") {
+                              setNewColumnName("");
+                              setAddingColumn(false);
+                            }
+                          }}
+                        />
+                        <div className="projectboard-newcol-actions">
+                          <button type="button" onClick={handleAddColumn} disabled={columnBusy}>
+                            {columnBusy ? "Adding..." : "Add"}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => {
+                              setNewColumnName("");
+                              setAddingColumn(false);
+                            }}
+                            disabled={columnBusy}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" className="projectboard-addcol-btn" onClick={() => setAddingColumn(true)}>
+                        + Add column
+                      </button>
+                    )}
+                  </div>
+                ) : null}
               </div>
             </section>
 
@@ -1010,13 +835,30 @@ export default function ProjectBoardPage() {
                       <div
                         className={`projectboard-card priority-${task.priority.toLowerCase()} ${isTaskCompleted(task) ? "completed" : ""} drag-overlay`}
                       >
-                        <BoardCardBody task={task} completed={isTaskCompleted(task)} />
+                        <TaskCardBody task={task} completed={isTaskCompleted(task)} />
                       </div>
                     );
                   })()
                 : null}
             </DragOverlay>
           </DndContext>
+        ) : view === "list" ? (
+          <section className="projectboard-lanes-wrap">
+            <TaskListView
+              tasks={project?.tasks ?? []}
+              onOpenTask={setActiveTask}
+              onToggleComplete={toggleComplete}
+            />
+          </section>
+        ) : (
+          <section className="projectboard-lanes-wrap">
+            <MonthCalendar
+              tasks={project?.tasks ?? []}
+              month={calMonth}
+              onChangeMonth={setCalMonth}
+              onOpenTask={setActiveTask}
+            />
+          </section>
         )}
 
         {error ? <p className="error space-top">{error}</p> : null}

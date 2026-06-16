@@ -1,7 +1,32 @@
+import { ProjectMemberRole } from "@prisma/client";
+import { z } from "zod";
 import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { requireProjectAccess } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
+
+const updateProjectSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    description: z.string().trim().max(4000).nullable().optional(),
+  })
+  .refine((value) => value.name !== undefined || value.description !== undefined, {
+    message: "At least one field is required.",
+  });
+
+async function canManageProject(projectId, userId) {
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      OR: [
+        { ownerId: userId },
+        { members: { some: { userId, role: ProjectMemberRole.MANAGER } } },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(project);
+}
 
 export async function GET(request, { params }) {
   const routeParams = await params;
@@ -108,5 +133,51 @@ export async function GET(request, { params }) {
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load project." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request, { params }) {
+  const routeParams = await params;
+  const projectId = routeParams?.projectId;
+  if (!projectId) {
+    return NextResponse.json({ error: "Project id is required." }, { status: 400 });
+  }
+
+  let user;
+  try {
+    user = await requireRequestUser(request);
+    await requireProjectAccess(user.id, projectId);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error && error.message === "FORBIDDEN" ? "Forbidden." : "Unauthorized." },
+      { status: error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401 },
+    );
+  }
+
+  const canManage = await canManageProject(projectId, user.id);
+  if (!canManage) {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  }
+
+  try {
+    const payload = updateProjectSchema.parse(await request.json());
+    const data = {};
+    if (payload.name !== undefined) data.name = payload.name;
+    if (payload.description !== undefined) {
+      data.description = payload.description ? payload.description.trim() : null;
+    }
+
+    const project = await prisma.project.update({
+      where: { id: projectId },
+      data,
+      select: { id: true, name: true, description: true, updatedAt: true },
+    });
+
+    return NextResponse.json({ project });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.issues[0]?.message ?? "Invalid request." }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Unable to update project." }, { status: 400 });
   }
 }

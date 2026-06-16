@@ -48,6 +48,33 @@ Next.js 16 (App Router), React 19, **JavaScript (no TS)**, plain CSS in `web/app
 - Added component styles for the members drawer and the project-create modal.
 - Verified: eslint clean on changed files; `next build` succeeds (all routes compile, `DELETE` registered on the members route).
 
+## AppFlowy full-app port — Wave 1  ✅ implemented
+Staged delivery (see `~/.claude/plans/now-can-we-make-encapsulated-feigenbaum.md`). Wave 1 = AppFlowy look + interactions, no schema migration.
+
+**Shared building blocks (new):**
+- `web/lib/task-client.js` — fetch helpers (updateTask, setAssignees, attachments, column CRUD, project rename).
+- `web/lib/task-format.js` — pure helpers (priority, due formatting, month-grid, list grouping).
+- `web/components/task-card.jsx` — `TaskCardBody` (board) + `TaskChip` (calendar).
+- `web/components/task-detail-dialog.jsx` — **centered AppFlowy row-detail popup** with inline editing (title, priority, due, labor, assignees, status/column) + attachments; replaces the old `taskview-*` drawer everywhere.
+- `web/components/month-calendar.jsx` — AppFlowy month grid (Due Dates + My Tasks calendar + board calendar).
+- `web/components/task-list-view.jsx` — AppFlowy todo list grouped Overdue/Today/This week/Upcoming/No date/Completed with inline checkboxes.
+- `web/components/view-switcher.jsx` — Board/List/Calendar segmented control.
+- `web/components/project-create-dialog.jsx` — shared AppFlowy create-project dialog (sidebar + landing).
+
+**Backend (additive, no migration):**
+- `PATCH /api/tasks/[taskId]` extended (title/description/priority/dueDate/laborMinutes/columnId).
+- `assign` route allows empty `userIds` (clear assignees).
+- New `POST/PATCH /api/projects/[projectId]/columns` (add + reorder, two-phase to respect `@@unique`) and `PATCH/DELETE /api/projects/[projectId]/columns/[columnId]` (rename/delete).
+- `PATCH /api/projects/[projectId]` (rename project).
+
+**Pages:** board gets Board/List/Calendar views + inline column editing (rename/add/reorder/delete) + the shared dialog; My Tasks gets List⇄Calendar; Due Dates becomes an interactive month calendar; `/projects` simplified to a sidebar-driven landing; sidebar shows an expandable Projects tree with "+ New project"; login restyled (no social auth); dashboard radii/borders aligned to AppFlowy.
+
+**Verified:** eslint clean across all changed files; `next build` compiles all routes (new column routes registered).
+
+## Wave 2 / Wave 3 (not yet done)
+- **Wave 2:** custom properties (`ProjectField` + `TaskFieldValue` models + migration) and persistent ordering (`Project.order`, optional `Task.position`).
+- **Wave 3:** AppFlowy-identical settings/workspace manager (My Account name/icon/password, Workspace name/icon/manage-users, Appearance) — excludes Cloud/Billing/AI/Sites/Plan/Shortcuts; needs `User.avatarUrl` migration.
+
 ## Phases NOT yet done (future sessions)
 - **Visual verification pass:** the audit fixed readability (no more white-on-dark surfaces), but each route should still be eyeballed in a running dev server for polish (spacing, accent consistency).
 - **Optional schema change (needs approval):** `Task.position` for persistent within-column ordering.

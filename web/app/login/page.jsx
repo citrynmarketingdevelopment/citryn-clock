@@ -46,8 +46,9 @@ export default function LoginPage() {
     <main className="login-shell">
       <div className="card card-strong login-card">
         <div style={{ marginBottom: 16 }}>
+          <span className="login-mark">C</span>
           <h1 className="headline">Citryn Clock</h1>
-          <p className="muted">Secure employee time tracking portal</p>
+          <p className="muted">Sign in to your workspace</p>
         </div>
         <form onSubmit={onSubmit}>
           <div className="row">

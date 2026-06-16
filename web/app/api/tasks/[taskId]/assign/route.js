@@ -5,7 +5,7 @@ import { canUserAccessProject } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
 
 const assignTaskSchema = z.object({
-  userIds: z.array(z.string().trim().min(1)).min(1),
+  userIds: z.array(z.string().trim().min(1)),
   replace: z.boolean().optional().default(true),
 });
 

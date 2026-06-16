@@ -1,12 +1,23 @@
+import { TaskPriority } from "@prisma/client";
 import { z } from "zod";
 import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { canUserAccessProject } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
 
-const updateTaskSchema = z.object({
-  completed: z.boolean(),
-});
+const updateTaskSchema = z
+  .object({
+    completed: z.boolean().optional(),
+    title: z.string().trim().min(1).max(200).optional(),
+    description: z.string().trim().max(4000).optional(),
+    priority: z.nativeEnum(TaskPriority).optional(),
+    dueDate: z.string().datetime().nullable().optional(),
+    laborMinutes: z.number().int().positive().optional(),
+    columnId: z.string().trim().min(1).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
 
 function toTaskPayload(task) {
   return {
@@ -76,11 +87,33 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
+    const data = {};
+    if (payload.completed !== undefined) {
+      data.completedAt = payload.completed ? new Date() : null;
+    }
+    if (payload.title !== undefined) data.title = payload.title;
+    if (payload.description !== undefined) data.description = payload.description;
+    if (payload.priority !== undefined) data.priority = payload.priority;
+    if (payload.dueDate !== undefined) {
+      data.dueDate = payload.dueDate ? new Date(payload.dueDate) : null;
+    }
+    if (payload.laborMinutes !== undefined) data.laborMinutes = payload.laborMinutes;
+    if (payload.columnId !== undefined) {
+      if (payload.columnId) {
+        const column = await prisma.projectColumn.findFirst({
+          where: { id: payload.columnId, projectId: task.projectId },
+          select: { id: true },
+        });
+        if (!column) {
+          return NextResponse.json({ error: "Column does not belong to this project." }, { status: 400 });
+        }
+      }
+      data.columnId = payload.columnId;
+    }
+
     const updated = await prisma.task.update({
       where: { id: task.id },
-      data: {
-        completedAt: payload.completed ? new Date() : null,
-      },
+      data,
       include: {
         project: {
           select: { id: true, name: true },
