@@ -10,6 +10,7 @@ import {
   updateTask,
 } from "@/lib/task-client";
 import { initials, priorities } from "@/lib/task-format";
+import TaskCustomFields from "@/components/task-custom-fields";
 
 function toDateInputValue(iso) {
   if (!iso) return "";
@@ -21,7 +22,15 @@ function toDateInputValue(iso) {
 
 // Centered AppFlowy row-detail dialog. Used by the board, My Tasks, and Due Dates.
 // `canEdit` enables inline editing; `projectColumns` enables the Column selector.
-export default function TaskDetailDialog({ task, currentUser, canEdit = false, projectColumns = null, onClose, onUpdated }) {
+export default function TaskDetailDialog({
+  task,
+  currentUser,
+  canEdit = false,
+  canManageFields = false,
+  projectColumns = null,
+  onClose,
+  onUpdated,
+}) {
   const [current, setCurrent] = useState(task);
   const [title, setTitle] = useState(task?.title ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
@@ -338,6 +347,16 @@ export default function TaskDetailDialog({ task, currentUser, canEdit = false, p
                 <span className="taskdialog-prop-label">Project</span>
                 <span className="taskdialog-prop-value">{current.project.name}</span>
               </div>
+            ) : null}
+
+            {canEdit ? (
+              <TaskCustomFields
+                key={current.id}
+                task={current}
+                projectId={projectId}
+                canManageFields={canManageFields}
+                onUpdated={applyTask}
+              />
             ) : null}
           </div>
 

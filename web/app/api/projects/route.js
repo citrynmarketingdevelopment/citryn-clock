@@ -54,7 +54,7 @@ export async function GET(request) {
           },
         },
       },
-      orderBy: [{ updatedAt: "desc" }],
+      orderBy: [{ order: "asc" }, { updatedAt: "desc" }],
     });
 
     return NextResponse.json({
@@ -77,12 +77,20 @@ export async function POST(request) {
     const payload = createProjectSchema.parse(await request.json());
     const description = payload.description ? payload.description.trim() : null;
 
+    const lastOwned = await prisma.project.findFirst({
+      where: { ownerId: user.id },
+      orderBy: { order: "desc" },
+      select: { order: true },
+    });
+    const nextOrder = (lastOwned?.order ?? -1) + 1;
+
     const project = await prisma.$transaction(async (tx) => {
       const created = await tx.project.create({
         data: {
           name: payload.name,
           description,
           ownerId: user.id,
+          order: nextOrder,
           members: {
             create: {
               userId: user.id,
@@ -120,5 +128,47 @@ export async function POST(request) {
     );
   } catch {
     return NextResponse.json({ error: "Unable to create project." }, { status: 400 });
+  }
+}
+
+const reorderProjectsSchema = z.object({
+  orderedIds: z.array(z.string().trim().min(1)).min(1),
+});
+
+export async function PATCH(request) {
+  let user;
+  try {
+    user = await requireRequestUser(request);
+  } catch {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  try {
+    const payload = reorderProjectsSchema.parse(await request.json());
+    const orderedIds = [...new Set(payload.orderedIds)];
+
+    // Only reorder projects the user can actually see (owner or member).
+    const accessible = await prisma.project.findMany({
+      where: {
+        id: { in: orderedIds },
+        OR: [{ ownerId: user.id }, { members: { some: { userId: user.id } } }],
+      },
+      select: { id: true },
+    });
+    const accessibleIds = new Set(accessible.map((project) => project.id));
+    if (orderedIds.some((id) => !accessibleIds.has(id))) {
+      return NextResponse.json({ error: "One or more projects are not accessible." }, { status: 400 });
+    }
+
+    await prisma.$transaction(
+      orderedIds.map((id, index) => prisma.project.update({ where: { id }, data: { order: index } })),
+    );
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.issues[0]?.message ?? "Invalid request." }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Unable to reorder projects." }, { status: 400 });
   }
 }

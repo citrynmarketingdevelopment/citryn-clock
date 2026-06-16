@@ -719,6 +719,7 @@ export default function ProjectBoardPage() {
             task={activeTask}
             currentUser={user}
             canEdit
+            canManageFields={canManage}
             projectColumns={columns}
             onClose={() => setActiveTask(null)}
             onUpdated={mergeUpdatedTask}

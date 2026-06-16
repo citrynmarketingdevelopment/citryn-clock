@@ -71,9 +71,33 @@ Staged delivery (see `~/.claude/plans/now-can-we-make-encapsulated-feigenbaum.md
 
 **Verified:** eslint clean across all changed files; `next build` compiles all routes (new column routes registered).
 
-## Wave 2 / Wave 3 (not yet done)
-- **Wave 2:** custom properties (`ProjectField` + `TaskFieldValue` models + migration) and persistent ordering (`Project.order`, optional `Task.position`).
+## AppFlowy full-app port — Wave 2  ✅ implemented
+Custom properties + persistent project ordering. **Schema changed** (applied via `prisma db push`, the project's workflow — not migrations).
+
+**Schema (`web/prisma/schema.prisma`):**
+- `enum ProjectFieldType { TEXT NUMBER SELECT DATE CHECKBOX }`.
+- `model ProjectField` (id, projectId, name, type, order, options Json?) and `model TaskFieldValue` (id, taskId, fieldId, value Json?, unique [taskId,fieldId]).
+- `Project.order Int @default(0)` + `fields`/`fieldValues` relations.
+
+**Backend:**
+- New `lib/task-payload.js` (`taskInclude` + `toTaskPayload`) — every task-returning route now emits `fieldValues` (PATCH/move/attachments/field-value all refactored to use it).
+- Fields CRUD: `GET/POST/PATCH /api/projects/[projectId]/fields` (list/create/reorder) + `PATCH/DELETE /api/projects/[projectId]/fields/[fieldId]`.
+- Value upsert: `PUT /api/tasks/[taskId]/fields/[fieldId]` (`{ value }`, null clears).
+- Project ordering: `GET /api/projects` orders by `order`; create sets next order; new `PATCH /api/projects` `{ orderedIds }` to persist sidebar reorder.
+- Project GET payload includes `fields` + per-task `fieldValues`.
+
+**Frontend:**
+- `components/task-custom-fields.jsx` — custom-property rows in the task dialog with per-type editors (text/number/date/checkbox/select); managers get "+ Add property" and delete. Wired into `task-detail-dialog.jsx` (`canManageFields`, true only on the board).
+- Sidebar projects are drag-reorderable (native DnD) → persists via `reorderProjects`.
+- `lib/task-client.js` helpers: getProjectFields/createField/deleteField/setFieldValue/reorderProjects.
+
+**Verified:** eslint clean; `next build` compiles (field routes registered); `prisma db push` + `generate` succeeded against Neon.
+
+## Wave 3 (not yet done)
 - **Wave 3:** AppFlowy-identical settings/workspace manager (My Account name/icon/password, Workspace name/icon/manage-users, Appearance) — excludes Cloud/Billing/AI/Sites/Plan/Shortcuts; needs `User.avatarUrl` migration.
+
+## Not runtime-verified yet
+Wave 1 + Wave 2 build clean but have **not** been exercised in a running browser (the harness preview tooling couldn't reach the sibling repo; no Chrome extension connected). Worth a live smoke test: custom-property add/edit/delete, field-value persistence across the popup, sidebar drag-reorder, column reorder.
 
 ## Phases NOT yet done (future sessions)
 - **Visual verification pass:** the audit fixed readability (no more white-on-dark surfaces), but each route should still be eyeballed in a running dev server for polish (spacing, accent consistency).

@@ -3,47 +3,10 @@ import { requireRequestUser } from "@/lib/api-auth";
 import { canUserAccessProject } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
 import { isBlobConfigured, uploadBlob } from "@/lib/blob-storage";
+import { taskInclude, toTaskPayload } from "@/lib/task-payload";
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_TYPES = new Set(["IMAGE", "LINK"]);
-
-function toTaskPayload(task) {
-  return {
-    id: task.id,
-    projectId: task.projectId,
-    columnId: task.columnId,
-    title: task.title,
-    description: task.description,
-    laborMinutes: task.laborMinutes,
-    priority: task.priority,
-    dueDate: task.dueDate,
-    completedAt: task.completedAt,
-    createdById: task.createdById,
-    createdAt: task.createdAt,
-    updatedAt: task.updatedAt,
-    project: task.project ? { id: task.project.id, name: task.project.name } : null,
-    column: task.column
-      ? {
-          id: task.column.id,
-          name: task.column.name,
-          order: task.column.order,
-        }
-      : null,
-    assignees: (task.assignments ?? []).map((assignment) => ({
-      id: assignment.user.id,
-      name: assignment.user.name,
-      email: assignment.user.email,
-    })),
-    attachments: (task.attachments ?? []).map((attachment) => ({
-      id: attachment.id,
-      type: attachment.type,
-      url: attachment.url,
-      label: attachment.label,
-      createdById: attachment.createdById,
-      createdAt: attachment.createdAt,
-    })),
-  };
-}
 
 function parseHttpUrl(rawValue) {
   try {
@@ -174,24 +137,7 @@ export async function POST(request, { params }) {
 
     const updatedTask = await prisma.task.findUnique({
       where: { id: task.id },
-      include: {
-        project: {
-          select: { id: true, name: true },
-        },
-        column: {
-          select: { id: true, name: true, order: true },
-        },
-        assignments: {
-          include: {
-            user: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        },
-        attachments: {
-          orderBy: [{ createdAt: "asc" }],
-        },
-      },
+      include: taskInclude,
     });
 
     if (!updatedTask) {

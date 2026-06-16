@@ -112,6 +112,65 @@ export async function deleteColumn(projectId, columnId) {
   return true;
 }
 
+// --- Custom properties (Wave 2) ---
+
+export async function getProjectFields(projectId) {
+  const response = await fetch(`/api/projects/${projectId}/fields`, { cache: "no-store" });
+  const data = await parseJsonSafe(response);
+  if (!response.ok) {
+    throw new Error(data.error ?? "Unable to load properties.");
+  }
+  return data.fields ?? [];
+}
+
+export async function createField(projectId, { name, type, options }) {
+  const response = await fetch(`/api/projects/${projectId}/fields`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, type, options }),
+  });
+  const data = await parseJsonSafe(response);
+  if (!response.ok || !data.field) {
+    throw new Error(data.error ?? "Unable to add property.");
+  }
+  return data.field;
+}
+
+export async function deleteField(projectId, fieldId) {
+  const response = await fetch(`/api/projects/${projectId}/fields/${fieldId}`, { method: "DELETE" });
+  const data = await parseJsonSafe(response);
+  if (!response.ok) {
+    throw new Error(data.error ?? "Unable to delete property.");
+  }
+  return true;
+}
+
+export async function setFieldValue(taskId, fieldId, value) {
+  const response = await fetch(`/api/tasks/${taskId}/fields/${fieldId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  const data = await parseJsonSafe(response);
+  if (!response.ok || !data.task) {
+    throw new Error(data.error ?? "Unable to update property value.");
+  }
+  return data.task;
+}
+
+export async function reorderProjects(orderedIds) {
+  const response = await fetch("/api/projects", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orderedIds }),
+  });
+  const data = await parseJsonSafe(response);
+  if (!response.ok) {
+    throw new Error(data.error ?? "Unable to reorder projects.");
+  }
+  return true;
+}
+
 export function renameProject(projectId, patch) {
   return fetch(`/api/projects/${projectId}`, {
     method: "PATCH",

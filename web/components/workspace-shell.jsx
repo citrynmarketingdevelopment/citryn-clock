@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import ProjectCreateDialog from "@/components/project-create-dialog";
+import { reorderProjects } from "@/lib/task-client";
 
 function classNames(...values) {
   return values.filter(Boolean).join(" ");
@@ -24,6 +25,7 @@ export default function WorkspaceShell({ user, onLogout, children }) {
   const [projects, setProjects] = useState([]);
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [dragIndex, setDragIndex] = useState(null);
 
   const loadProjects = useCallback(async () => {
     const response = await fetch("/api/projects", { cache: "no-store" });
@@ -36,6 +38,19 @@ export default function WorkspaceShell({ user, onLogout, children }) {
     if (!user?.id) return;
     loadProjects().catch(() => {});
   }, [user?.id, loadProjects]);
+
+  function onDropProject(targetIndex) {
+    if (dragIndex === null || dragIndex === targetIndex) {
+      setDragIndex(null);
+      return;
+    }
+    const reordered = [...projects];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+    setProjects(reordered);
+    setDragIndex(null);
+    reorderProjects(reordered.map((project) => project.id)).catch(() => loadProjects());
+  }
 
   // Secondary nav (Projects is rendered as its own expandable group below).
   const navItems = [{ href: "/my-tasks", label: "My Tasks" }];
@@ -85,14 +100,24 @@ export default function WorkspaceShell({ user, onLogout, children }) {
                 {projects.length === 0 ? (
                   <p className="ws-proj-empty">No projects yet.</p>
                 ) : (
-                  projects.map((project) => (
-                    <Link
+                  projects.map((project, index) => (
+                    <button
                       key={project.id}
-                      href={`/projects/${project.id}`}
-                      className={classNames("ws-proj-item", pathname === `/projects/${project.id}` && "active")}
+                      type="button"
+                      draggable
+                      className={classNames(
+                        "ws-proj-item",
+                        pathname === `/projects/${project.id}` && "active",
+                        dragIndex === index && "dragging",
+                      )}
+                      onClick={() => router.push(`/projects/${project.id}`)}
+                      onDragStart={() => setDragIndex(index)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => onDropProject(index)}
+                      onDragEnd={() => setDragIndex(null)}
                     >
                       {project.name}
-                    </Link>
+                    </button>
                   ))
                 )}
                 <Link

@@ -71,6 +71,9 @@ export async function GET(request, { params }) {
           },
           orderBy: { createdAt: "asc" },
         },
+        fields: {
+          orderBy: { order: "asc" },
+        },
         tasks: {
           include: {
             assignments: {
@@ -82,6 +85,9 @@ export async function GET(request, { params }) {
             },
             attachments: {
               orderBy: [{ createdAt: "asc" }],
+            },
+            fieldValues: {
+              select: { fieldId: true, value: true },
             },
           },
           orderBy: [{ createdAt: "desc" }],
@@ -104,6 +110,13 @@ export async function GET(request, { params }) {
           user: member.user,
           role: member.role,
         })),
+        fields: project.fields.map((field) => ({
+          id: field.id,
+          name: field.name,
+          type: field.type,
+          order: field.order,
+          options: field.options ?? null,
+        })),
         tasks: project.tasks.map((task) => ({
           id: task.id,
           projectId: task.projectId,
@@ -125,6 +138,10 @@ export async function GET(request, { params }) {
             label: attachment.label,
             createdById: attachment.createdById,
             createdAt: attachment.createdAt,
+          })),
+          fieldValues: task.fieldValues.map((value) => ({
+            fieldId: value.fieldId,
+            value: value.value,
           })),
         })),
         createdAt: project.createdAt,

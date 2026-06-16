@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { canUserAccessProject } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
+import { taskInclude, toTaskPayload } from "@/lib/task-payload";
 
 // Additive endpoint: persists a Kanban card's column change.
 // Does not touch the Prisma schema or any existing route. Cross-column moves
@@ -10,44 +11,6 @@ import { prisma } from "@/lib/prisma";
 const moveTaskSchema = z.object({
   columnId: z.string().trim().min(1),
 });
-
-function toTaskPayload(task) {
-  return {
-    id: task.id,
-    projectId: task.projectId,
-    columnId: task.columnId,
-    title: task.title,
-    description: task.description,
-    laborMinutes: task.laborMinutes,
-    priority: task.priority,
-    dueDate: task.dueDate,
-    completedAt: task.completedAt,
-    createdById: task.createdById,
-    createdAt: task.createdAt,
-    updatedAt: task.updatedAt,
-    project: task.project ? { id: task.project.id, name: task.project.name } : null,
-    column: task.column
-      ? {
-          id: task.column.id,
-          name: task.column.name,
-          order: task.column.order,
-        }
-      : null,
-    assignees: (task.assignments ?? []).map((assignment) => ({
-      id: assignment.user.id,
-      name: assignment.user.name,
-      email: assignment.user.email,
-    })),
-    attachments: (task.attachments ?? []).map((attachment) => ({
-      id: attachment.id,
-      type: attachment.type,
-      url: attachment.url,
-      label: attachment.label,
-      createdById: attachment.createdById,
-      createdAt: attachment.createdAt,
-    })),
-  };
-}
 
 export async function POST(request, { params }) {
   const routeParams = await params;
@@ -96,24 +59,7 @@ export async function POST(request, { params }) {
       data: {
         columnId: column.id,
       },
-      include: {
-        project: {
-          select: { id: true, name: true },
-        },
-        column: {
-          select: { id: true, name: true, order: true },
-        },
-        assignments: {
-          include: {
-            user: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        },
-        attachments: {
-          orderBy: [{ createdAt: "asc" }],
-        },
-      },
+      include: taskInclude,
     });
 
     return NextResponse.json({ task: toTaskPayload(updated) });

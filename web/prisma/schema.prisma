@@ -36,6 +36,14 @@ enum TaskAttachmentType {
   LINK
 }
 
+enum ProjectFieldType {
+  TEXT
+  NUMBER
+  SELECT
+  DATE
+  CHECKBOX
+}
+
 model User {
   id                   String           @id @default(cuid())
   email                String           @unique
@@ -72,10 +80,12 @@ model Project {
   name        String
   description String?
   ownerId     String
+  order       Int             @default(0)
   owner       User            @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   members     ProjectMember[]
   columns     ProjectColumn[]
   tasks       Task[]
+  fields      ProjectField[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -125,12 +135,42 @@ model Task {
   createdBy   User             @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
   assignments TaskAssignment[]
   attachments TaskAttachment[]
+  fieldValues TaskFieldValue[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
   @@index([projectId, createdAt])
   @@index([dueDate])
   @@index([completedAt])
+}
+
+model ProjectField {
+  id        String           @id @default(cuid())
+  projectId String
+  name      String
+  type      ProjectFieldType @default(TEXT)
+  order     Int
+  options   Json?
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  values    TaskFieldValue[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([projectId, order])
+}
+
+model TaskFieldValue {
+  id        String       @id @default(cuid())
+  taskId    String
+  fieldId   String
+  value     Json?
+  task      Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  field     ProjectField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([taskId, fieldId])
+  @@index([fieldId])
 }
 
 model TaskAttachment {

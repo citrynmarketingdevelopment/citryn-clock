@@ -3788,6 +3788,77 @@ input.taskdialog-prop-value {
   margin: 2px 0;
 }
 
+/* --- Custom properties (Wave 2) --- */
+.taskdialog-customfields {
+  display: grid;
+  gap: 4px;
+}
+
+.taskdialog-customfield-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.taskdialog-customfield-delete {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-500);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.taskdialog-customfield-delete:hover {
+  color: var(--danger);
+  background: var(--surface-raised);
+  transform: none;
+  box-shadow: none;
+  filter: none;
+}
+
+.taskdialog-addfield-btn {
+  justify-self: start;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--ink-500);
+  box-shadow: none;
+  font-weight: 600;
+  margin: 4px 0 0 8px;
+  padding: 6px 12px;
+}
+
+.taskdialog-addfield-btn:hover {
+  color: var(--ink-900);
+  border-color: var(--accent);
+  transform: none;
+  box-shadow: none;
+  filter: none;
+}
+
+.taskdialog-addfield {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  margin: 4px 8px 0;
+  background: var(--card-solid);
+}
+
+.taskdialog-addfield input,
+.taskdialog-addfield select {
+  max-width: 220px;
+}
+
+.taskdialog-addfield-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .taskdialog-section {
   display: flex;
   flex-direction: column;
@@ -3977,6 +4048,14 @@ input.taskdialog-prop-value {
 .ws-proj-item.active {
   background: rgba(124, 108, 245, 0.16);
   color: var(--ink-900);
+}
+
+.ws-proj-item[draggable="true"] {
+  cursor: grab;
+}
+
+.ws-proj-item.dragging {
+  opacity: 0.5;
 }
 
 .ws-proj-add {
