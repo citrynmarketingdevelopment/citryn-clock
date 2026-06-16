@@ -1,19 +1,22 @@
 :root {
-  color-scheme: light;
-  --bg-top: #eef6ff;
-  --bg-bottom: #f8fbff;
-  --ink-900: #0f172a;
-  --ink-700: #2f3c52;
-  --ink-500: #5d6b82;
-  --border: #d9e3f2;
-  --card: rgba(255, 255, 255, 0.8);
-  --card-solid: #ffffff;
-  --primary: #0f766e;
-  --primary-strong: #115e59;
-  --accent: #0ea5e9;
-  --danger: #c81e4b;
-  --shadow-soft: 0 18px 50px rgba(15, 23, 42, 0.08);
-  --shadow-strong: 0 26px 70px rgba(14, 165, 233, 0.15);
+  /* AppFlowy-inspired dark theme. Token names are unchanged so the rest of the
+     stylesheet adopts the dark look automatically. */
+  color-scheme: dark;
+  --bg-top: #1b1f2a;
+  --bg-bottom: #13161e;
+  --ink-900: #e8ecf4;
+  --ink-700: #b9c2d4;
+  --ink-500: #8a93a8;
+  --border: #2a3140;
+  --card: rgba(31, 37, 49, 0.82);
+  --card-solid: #1e2430;
+  --surface-raised: #242b39;
+  --primary: #7c6cf5;
+  --primary-strong: #6553e6;
+  --accent: #9b8cff;
+  --danger: #ff5c7a;
+  --shadow-soft: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --shadow-strong: 0 26px 70px rgba(99, 83, 230, 0.35);
 }
 
 * {
@@ -30,9 +33,10 @@ body {
   font-family: var(--font-body), "Segoe UI", sans-serif;
   color: var(--ink-900);
   background:
-    radial-gradient(1100px 500px at 0% -20%, #c8e8ff 0%, rgba(200, 232, 255, 0) 70%),
-    radial-gradient(1000px 420px at 100% -15%, #d6fff2 0%, rgba(214, 255, 242, 0) 68%),
+    radial-gradient(1100px 500px at 0% -20%, rgba(124, 108, 245, 0.18) 0%, rgba(124, 108, 245, 0) 70%),
+    radial-gradient(1000px 420px at 100% -15%, rgba(155, 140, 255, 0.14) 0%, rgba(155, 140, 255, 0) 68%),
     linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+  background-attachment: fixed;
 }
 
 .skeleton {
@@ -893,7 +897,17 @@ body {
 }
 
 .projectboard-lane-head span {
-  color: #9eabc3;
+  color: var(--ink-500);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .projectboard-lane-stack {
@@ -907,14 +921,17 @@ body {
 }
 
 .projectboard-card {
-  border: 1px solid #3a4456;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px;
-  background: #262d3a;
+  padding: 11px;
+  background: var(--surface-raised, #262d3a);
   width: 100%;
   text-align: left;
   box-shadow: none;
   color: inherit;
+  cursor: grab;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  touch-action: manipulation;
 }
 
 .projectboard-card-head {
@@ -926,9 +943,34 @@ body {
 
 .projectboard-card:hover,
 .mytasks-task:hover {
-  transform: none;
+  transform: translateY(-1px);
   filter: none;
-  box-shadow: none;
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.projectboard-card:active {
+  cursor: grabbing;
+}
+
+/* Card being dragged is dimmed in place; the floating overlay is the bright one. */
+.projectboard-card.dragging {
+  cursor: grabbing;
+}
+
+.projectboard-card.drag-overlay {
+  cursor: grabbing;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-strong);
+  transform: rotate(2deg);
+}
+
+/* Lane highlights while a card hovers over it as a drop target. */
+.projectboard-lane-stack.drop-over {
+  background: rgba(124, 108, 245, 0.1);
+  border-radius: 10px;
+  outline: 1px dashed var(--accent);
+  outline-offset: -4px;
 }
 
 .projectboard-card-title {
@@ -1020,15 +1062,76 @@ body {
   text-transform: uppercase;
 }
 
+.projectboard-card-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(124, 108, 245, 0.14);
+  color: var(--accent);
+  text-transform: none;
+  font-weight: 600;
+}
+
+.projectboard-card-labor {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink-500);
+  text-transform: none;
+}
+
+.projectboard-card-foot {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
+}
+
+.projectboard-card-avatars {
+  display: flex;
+  flex-direction: row-reverse;
+}
+
+.projectboard-card-avatar {
+  width: 24px;
+  height: 24px;
+  margin-left: -7px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface-raised, #262d3a);
+}
+
+.projectboard-card-avatar.more {
+  background: #3a4456;
+  color: var(--ink-700);
+}
+
 .projectboard-lane-add {
   margin-top: auto;
-  border-top: 1px solid #313948;
+  border-top: 1px solid var(--border);
   border-radius: 0 0 12px 12px;
-  background: #1f2530;
-  color: #d7deee;
+  background: transparent;
+  color: var(--ink-500);
   box-shadow: none;
   padding: 10px 12px;
   text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.projectboard-lane-add:hover {
+  background: rgba(124, 108, 245, 0.12);
+  color: var(--accent);
 }
 
 .taskview-backdrop {

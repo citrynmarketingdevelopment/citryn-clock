@@ -3,6 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCorners,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import WorkspaceShell from "@/components/workspace-shell";
 
 const priorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
@@ -35,6 +46,107 @@ async function parseJsonSafe(response) {
   }
 }
 
+function formatDueDate(value) {
+  if (!value) return null;
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// Inner content of a board card, shared between the live card and the drag overlay.
+function BoardCardBody({ task, completed }) {
+  const dueLabel = formatDueDate(task.dueDate);
+  const assignees = task.assignees ?? [];
+  return (
+    <>
+      <div className="projectboard-card-head">
+        <div className="projectboard-card-title">{task.title}</div>
+        <span className={`task-priority-chip ${task.priority.toLowerCase()}`}>{task.priority}</span>
+      </div>
+
+      <div className="projectboard-card-meta">
+        {dueLabel ? <span className="projectboard-card-due">{dueLabel}</span> : null}
+        {typeof task.laborMinutes === "number" ? (
+          <span className="projectboard-card-labor">{task.laborMinutes}m</span>
+        ) : null}
+        {task.attachments?.length ? (
+          <span className="projectboard-card-attachment-count">
+            {task.attachments.length} file{task.attachments.length > 1 ? "s" : ""}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="projectboard-card-foot">
+        {completed ? <span className="task-done-note">Completed</span> : <span />}
+        {assignees.length ? (
+          <div className="projectboard-card-avatars">
+            {assignees.slice(0, 3).map((assignee) => (
+              <span key={assignee.id} className="projectboard-card-avatar" title={assignee.name}>
+                {initials(assignee.name)}
+              </span>
+            ))}
+            {assignees.length > 3 ? (
+              <span className="projectboard-card-avatar more">+{assignees.length - 3}</span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+// Draggable card. A small activation distance keeps plain clicks working (open details).
+function BoardCard({ task, completed, onOpen }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: task.id,
+    data: { type: "task", columnId: task.columnId },
+  });
+
+  const style = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    opacity: isDragging ? 0.35 : 1,
+  };
+
+  return (
+    <button
+      ref={setNodeRef}
+      style={style}
+      type="button"
+      className={`projectboard-card priority-${task.priority.toLowerCase()} ${completed ? "completed" : ""} ${isDragging ? "dragging" : ""}`}
+      onClick={() => onOpen(task)}
+      {...attributes}
+      {...listeners}
+    >
+      <BoardCardBody task={task} completed={completed} />
+    </button>
+  );
+}
+
+// Droppable lane (column). Tasks dropped here are moved into this column.
+function DroppableLane({ column, tasks, isCompleted, onOpenTask, onAddTask }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id,
+    data: { type: "column", columnId: column.id },
+  });
+
+  return (
+    <div className="projectboard-lane">
+      <header className="projectboard-lane-head">
+        <h3>{column.name}</h3>
+        <span>{tasks.length}</span>
+      </header>
+
+      <div ref={setNodeRef} className={`projectboard-lane-stack ${isOver ? "drop-over" : ""}`}>
+        {tasks.map((task) => (
+          <BoardCard key={task.id} task={task} completed={isCompleted(task)} onOpen={onOpenTask} />
+        ))}
+      </div>
+
+      <button type="button" className="projectboard-lane-add" onClick={() => onAddTask(column.id)}>
+        + Add task
+      </button>
+    </div>
+  );
+}
+
 export default function ProjectBoardPage() {
   const params = useParams();
   const router = useRouter();
@@ -47,6 +159,12 @@ export default function ProjectBoardPage() {
   const [loadingBoard, setLoadingBoard] = useState(true);
   const [saving, setSaving] = useState(false);
   const [updatingTask, setUpdatingTask] = useState(false);
+  const [activeId, setActiveId] = useState(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor),
+  );
   const [showComposer, setShowComposer] = useState(false);
   const [activeTask, setActiveTask] = useState(null);
   const [savingAttachment, setSavingAttachment] = useState(false);
@@ -197,6 +315,56 @@ export default function ProjectBoardPage() {
       };
     });
     setActiveTask((current) => (current?.id === updatedTask.id ? updatedTask : current));
+  }
+
+  function setTaskColumnLocally(taskId, columnId) {
+    setProject((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        tasks: (current.tasks ?? []).map((item) =>
+          item.id === taskId ? { ...item, columnId } : item,
+        ),
+      };
+    });
+  }
+
+  function onDragStart(event) {
+    setActiveId(event.active?.id ?? null);
+  }
+
+  async function onDragEnd(event) {
+    setActiveId(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const taskId = active.id;
+    const targetColumnId = over.data.current?.columnId ?? over.id;
+    const task = (project?.tasks ?? []).find((item) => item.id === taskId);
+    if (!task || !targetColumnId || task.columnId === targetColumnId) return;
+
+    const previousColumnId = task.columnId;
+    setError(null);
+    // Optimistic move; roll back if the server rejects it.
+    setTaskColumnLocally(taskId, targetColumnId);
+
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ columnId: targetColumnId }),
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok || !data.task) {
+        setTaskColumnLocally(taskId, previousColumnId);
+        setError(data.error ?? "Unable to move task.");
+        return;
+      }
+      mergeUpdatedTask(data.task);
+    } catch {
+      setTaskColumnLocally(taskId, previousColumnId);
+      setError("Unable to move task.");
+    }
   }
 
   async function updateTaskCompletion(taskId, completed) {
@@ -791,53 +959,44 @@ export default function ProjectBoardPage() {
             </div>
           </section>
         ) : (
-          <section className="projectboard-lanes-wrap">
-            <div className="projectboard-lanes">
-              {(project?.columns ?? []).map((column) => {
-                const tasks = taskMap.get(column.id) ?? [];
-                return (
-                  <div key={column.id} className="projectboard-lane">
-                    <header className="projectboard-lane-head">
-                      <h3>{column.name}</h3>
-                      <span>{tasks.length}</span>
-                    </header>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onDragCancel={() => setActiveId(null)}
+          >
+            <section className="projectboard-lanes-wrap">
+              <div className="projectboard-lanes">
+                {(project?.columns ?? []).map((column) => (
+                  <DroppableLane
+                    key={column.id}
+                    column={column}
+                    tasks={taskMap.get(column.id) ?? []}
+                    isCompleted={isTaskCompleted}
+                    onOpenTask={openTaskDetails}
+                    onAddTask={openComposer}
+                  />
+                ))}
+              </div>
+            </section>
 
-                    <div className="projectboard-lane-stack">
-                      {tasks.map((task) => (
-                        <button
-                          key={task.id}
-                          type="button"
-                          className={`projectboard-card priority-${task.priority.toLowerCase()} ${isTaskCompleted(task) ? "completed" : ""}`}
-                          onClick={() => openTaskDetails(task)}
-                        >
-                          <div className="projectboard-card-head">
-                            <div className="projectboard-card-title">{task.title}</div>
-                            <span className={`task-priority-chip ${task.priority.toLowerCase()}`}>{task.priority}</span>
-                          </div>
-                          {isTaskCompleted(task) ? <div className="task-done-note">Completed</div> : null}
-                          {task.attachments?.length ? (
-                            <div className="projectboard-card-attachment-count">
-                              {task.attachments.length} attachment{task.attachments.length > 1 ? "s" : ""}
-                            </div>
-                          ) : null}
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      className="projectboard-lane-add"
-                      onClick={() => {
-                        openComposer(column.id);
-                      }}
-                    >
-                      + Add task
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+            <DragOverlay>
+              {activeId
+                ? (() => {
+                    const task = (project?.tasks ?? []).find((item) => item.id === activeId);
+                    if (!task) return null;
+                    return (
+                      <div
+                        className={`projectboard-card priority-${task.priority.toLowerCase()} ${isTaskCompleted(task) ? "completed" : ""} drag-overlay`}
+                      >
+                        <BoardCardBody task={task} completed={isTaskCompleted(task)} />
+                      </div>
+                    );
+                  })()
+                : null}
+            </DragOverlay>
+          </DndContext>
         )}
 
         {error ? <p className="error space-top">{error}</p> : null}
