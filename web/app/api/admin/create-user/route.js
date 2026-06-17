@@ -1,5 +1,5 @@
 import { Role } from "@prisma/client";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import { NextResponse } from "next/server";
 import { hashPassword } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -51,7 +51,12 @@ export async function POST(request) {
     });
 
     return NextResponse.json({ user }, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof ZodError) {
+      const first = error.errors[0];
+      const field = first?.path?.join(".") ?? "field";
+      return NextResponse.json({ error: `${field}: ${first?.message ?? "Invalid value."}` }, { status: 400 });
+    }
     return NextResponse.json({ error: "Unable to create user." }, { status: 400 });
   }
 }

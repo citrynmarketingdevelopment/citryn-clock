@@ -531,9 +531,17 @@ body {
   background: linear-gradient(180deg, #232b39 0%, #1a202c 100%);
   color: #e8edf6;
   text-align: left;
-  padding: 12px;
+  padding: 14px;
   box-shadow: none;
   width: 100%;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.project-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(137, 121, 249, 0.22);
+  filter: none;
 }
 
 .project-card-top {
@@ -554,6 +562,14 @@ body {
   color: #0d1728;
   font-weight: 800;
   font-size: 0.8rem;
+}
+
+.project-card .page-icon-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 0.8rem;
+  flex: 0 0 auto;
 }
 
 .project-updated {
@@ -1503,8 +1519,8 @@ button {
 
 button:hover {
   transform: translateY(-1px);
-  filter: saturate(1.08);
-  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.25);
+  filter: brightness(1.06);
+  box-shadow: 0 8px 24px rgba(137, 121, 249, 0.38);
 }
 
 button:disabled {
@@ -3760,6 +3776,8 @@ button.members-remove {
 }
 
 .taskdialog-body {
+  flex: 1;
+  min-height: 0;
   padding: 18px 20px 22px;
   overflow-y: auto;
   display: flex;
@@ -4794,6 +4812,7 @@ input.taskdialog-prop-value {
 
 .afsettings-dialog {
   width: min(980px, 94vw);
+  height: 88vh;
   max-height: 88vh;
   display: grid;
   grid-template-columns: 256px minmax(0, 1fr);
@@ -4860,6 +4879,7 @@ input.taskdialog-prop-value {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .afsettings-panel-head {
@@ -4890,6 +4910,8 @@ input.taskdialog-prop-value {
 }
 
 .afsettings-panel-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 24px 30px 28px;
 }
@@ -5872,56 +5894,13 @@ input.taskdialog-prop-value {
 }
 
 .taskcreate-modal {
-  width: min(520px, 96vw);
-  max-height: 88vh;
-  border: 1px solid #3a4456;
-  border-radius: 12px;
-  background: #272e3b;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.taskcreate-head {
-  min-height: 54px;
-  padding: 10px 14px;
-  border-bottom: 1px solid #394354;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
+  /* Inherits all container styles from .taskdialog */
 }
 
 .taskcreate-kicker {
   margin: 0;
-  color: #7f8ba0;
+  color: var(--ink-500);
   font-size: 0.76rem;
-}
-
-.taskcreate-head h2 {
-  margin: 0;
-  color: #edf3fb;
-  font-size: 1rem;
-}
-
-.taskcreate-close {
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  box-shadow: none;
-  color: #aeb8c9;
-  padding: 0;
-  font-size: 1.1rem;
-}
-
-.taskcreate-close:hover {
-  background: #343d4d;
-  transform: none;
-  box-shadow: none;
-  filter: none;
 }
 
 .taskcreate-body {
@@ -5970,23 +5949,30 @@ input.taskdialog-prop-value {
 }
 
 .taskcreate-assignee-button.selected {
-  border-color: rgba(20, 200, 239, 0.6);
-  background: rgba(20, 200, 239, 0.12);
-  color: #eefbff;
+  border-color: rgba(137, 121, 249, 0.6);
+  background: rgba(137, 121, 249, 0.12);
+  color: #e8e4ff;
 }
 
 .taskcreate-assignee-button:hover {
   transform: none;
   box-shadow: none;
   filter: none;
-  border-color: #14c8ef;
+  border-color: var(--accent);
+}
+
+.taskcreate-error {
+  padding: 0 20px;
+  flex-shrink: 0;
 }
 
 .taskcreate-footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 6px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--af-hairline);
+  flex-shrink: 0;
 }
 
 .subtasks-property,

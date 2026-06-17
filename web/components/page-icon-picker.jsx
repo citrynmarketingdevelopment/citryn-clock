@@ -190,7 +190,7 @@ export default function PageIconPicker({ storageKey, fallback = "◇", label = "
               <button type="button" onClick={() => fileInputRef.current?.click()}>
                 Choose image
               </button>
-              <p>Use a small square image for the cleanest AppFlowy-style page icon.</p>
+              <p>Use a small square image for the cleanest page icon.</p>
               <input ref={fileInputRef} type="file" accept="image/*" onChange={onUpload} />
             </div>
           ) : null}

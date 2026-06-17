@@ -379,7 +379,7 @@ export default function SettingsDialog({
 
             {!loading && activeMeta.key === "workspace" ? (
               <>
-                <SettingsSection title="Workspace Profile" description="Mirror AppFlowy's workspace identity with a local workspace name and icon.">
+                <SettingsSection title="Workspace Profile" description="Customize your workspace name and icon.">
                   <div className="afsettings-workspace-row">
                     <PageIconPicker storageKey={WORKSPACE_ICON_KEY} fallback="⌂" label="Workspace icon" />
                     <label className="afsettings-field workspace-name">
@@ -424,7 +424,8 @@ export default function SettingsDialog({
                     />
                     <input
                       type="password"
-                      placeholder="Temporary password"
+                      placeholder="Temporary password (8+ chars)"
+                      minLength={8}
                       value={newUserForm.password}
                       onChange={(event) => setNewUserForm((current) => ({ ...current, password: event.target.value }))}
                     />
@@ -447,6 +448,8 @@ export default function SettingsDialog({
                 <SettingsSection title="Members" description="Manage user roles and remove access.">
                   {loadingUsers ? (
                     <p className="muted">Loading users...</p>
+                  ) : users.length === 0 ? (
+                    <p className="muted">No users found.</p>
                   ) : (
                     <div className="afsettings-members-list">
                       {users.map((item) => (
@@ -496,7 +499,7 @@ export default function SettingsDialog({
                       >
                         <span className={`afsettings-theme-swatch ${theme.key}`} />
                         <strong>{theme.label}</strong>
-                        <small>{theme.key === "midnight" ? "Current dark Citryn palette" : "Purple AppFlowy accent palette"}</small>
+                        <small>{theme.key === "midnight" ? "Current dark Citryn palette" : "Purple accent palette"}</small>
                       </button>
                     ))}
                   </div>

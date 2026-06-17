@@ -228,7 +228,7 @@ export default function TaskCreateDialog({
           </button>
         </header>
 
-        <form className="taskdialog-body taskcreate-body" onSubmit={onSubmit}>
+        <form id="task-create-form" className="taskdialog-body taskcreate-body" onSubmit={onSubmit}>
           <input
             required
             autoFocus
@@ -407,17 +407,18 @@ export default function TaskCreateDialog({
             {photoFile ? <p className="muted taskcreate-upload-note">{photoFile.name}</p> : <p className="muted">No attachments yet.</p>}
           </section>
 
-          {error ? <p className="error">{error}</p> : null}
-
-          <footer className="taskcreate-footer">
-            <button type="button" className="secondary" onClick={onClose} disabled={saving}>
-              Cancel
-            </button>
-            <button type="submit" disabled={saving || loadingProject || !projects.length}>
-              {saving ? "Creating..." : "Create"}
-            </button>
-          </footer>
         </form>
+
+        {error ? <p className="error taskcreate-error">{error}</p> : null}
+
+        <footer className="taskcreate-footer">
+          <button type="button" className="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button type="submit" form="task-create-form" disabled={saving || loadingProject || !projects.length}>
+            {saving ? "Creating..." : "Create"}
+          </button>
+        </footer>
       </section>
     </div>
   );

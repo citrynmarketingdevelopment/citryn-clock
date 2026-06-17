@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { requireRequestUser, requireAdmin } from "@/lib/api-auth";
+import { requireAdmin } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request) {
   try {
-    await requireRequestUser(request);
-  } catch {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    await requireAdmin(request);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error && error.message === "FORBIDDEN" ? "Forbidden." : "Unauthorized." },
+      { status: error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401 },
+    );
   }
 
   if (typeof prisma.user?.findMany !== "function") {

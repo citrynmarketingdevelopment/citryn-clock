@@ -9,7 +9,6 @@ export function TaskCardBody({ task, completed }) {
   const dueLabel = formatDueDate(task.dueDate);
   const assignees = task.assignees ?? [];
   const priority = priorityMeta(task.priority);
-  const repeats = recurrenceLabel(task);
   return (
     <>
       <div className="projectboard-card-head">
@@ -22,15 +21,6 @@ export function TaskCardBody({ task, completed }) {
 
       <div className="projectboard-card-meta">
         {dueLabel ? <span className="projectboard-card-due">{dueLabel}</span> : null}
-        {typeof task.laborMinutes === "number" ? (
-          <span className="projectboard-card-labor">{task.laborMinutes}m</span>
-        ) : null}
-        {task.attachments?.length ? (
-          <span className="projectboard-card-attachment-count">
-            {task.attachments.length} file{task.attachments.length > 1 ? "s" : ""}
-          </span>
-        ) : null}
-        {repeats ? <span className="projectboard-card-repeat">Repeats</span> : null}
       </div>
 
       <div className="projectboard-card-foot">
