@@ -1,10 +1,11 @@
-import { TaskPriority } from "@prisma/client";
+import { TaskPriority, TaskRecurrenceFrequency } from "@prisma/client";
 import { z } from "zod";
 import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { canUserAccessProject } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
 import { taskInclude, toTaskPayload } from "@/lib/task-payload";
+import { nextRecurringDueDate } from "@/lib/task-recurrence";
 
 const updateTaskSchema = z
   .object({
@@ -13,6 +14,10 @@ const updateTaskSchema = z
     description: z.string().trim().max(4000).optional(),
     priority: z.nativeEnum(TaskPriority).optional(),
     dueDate: z.string().datetime().nullable().optional(),
+    recurrenceFrequency: z.nativeEnum(TaskRecurrenceFrequency).optional(),
+    recurrenceInterval: z.coerce.number().int().min(1).max(52).optional(),
+    recurrenceDayOfWeek: z.coerce.number().int().min(0).max(6).nullable().optional(),
+    recurrenceDayOfMonth: z.coerce.number().int().min(1).max(31).nullable().optional(),
     laborMinutes: z.number().int().positive().optional(),
     columnId: z.string().trim().min(1).nullable().optional(),
   })
@@ -39,7 +44,15 @@ export async function PATCH(request, { params }) {
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
-      select: { id: true, projectId: true },
+      select: {
+        id: true,
+        projectId: true,
+        dueDate: true,
+        recurrenceFrequency: true,
+        recurrenceInterval: true,
+        recurrenceDayOfWeek: true,
+        recurrenceDayOfMonth: true,
+      },
     });
     if (!task) {
       return NextResponse.json({ error: "Task not found." }, { status: 404 });
@@ -51,14 +64,20 @@ export async function PATCH(request, { params }) {
     }
 
     const data = {};
-    if (payload.completed !== undefined) {
-      data.completedAt = payload.completed ? new Date() : null;
-    }
     if (payload.title !== undefined) data.title = payload.title;
     if (payload.description !== undefined) data.description = payload.description;
     if (payload.priority !== undefined) data.priority = payload.priority;
     if (payload.dueDate !== undefined) {
       data.dueDate = payload.dueDate ? new Date(payload.dueDate) : null;
+    }
+    if (payload.recurrenceFrequency !== undefined) data.recurrenceFrequency = payload.recurrenceFrequency;
+    if (payload.recurrenceInterval !== undefined) data.recurrenceInterval = payload.recurrenceInterval;
+    if (payload.recurrenceDayOfWeek !== undefined) data.recurrenceDayOfWeek = payload.recurrenceDayOfWeek;
+    if (payload.recurrenceDayOfMonth !== undefined) data.recurrenceDayOfMonth = payload.recurrenceDayOfMonth;
+    if (payload.recurrenceFrequency === TaskRecurrenceFrequency.NONE) {
+      data.recurrenceInterval = 1;
+      data.recurrenceDayOfWeek = null;
+      data.recurrenceDayOfMonth = null;
     }
     if (payload.laborMinutes !== undefined) data.laborMinutes = payload.laborMinutes;
     if (payload.columnId !== undefined) {
@@ -72,6 +91,28 @@ export async function PATCH(request, { params }) {
         }
       }
       data.columnId = payload.columnId;
+    }
+    if (payload.completed !== undefined) {
+      if (!payload.completed) {
+        data.completedAt = null;
+      } else {
+        const completedAt = new Date();
+        const recurrenceState = {
+          dueDate: data.dueDate !== undefined ? data.dueDate : task.dueDate,
+          recurrenceFrequency: data.recurrenceFrequency ?? task.recurrenceFrequency,
+          recurrenceInterval: data.recurrenceInterval ?? task.recurrenceInterval,
+          recurrenceDayOfWeek: data.recurrenceDayOfWeek ?? task.recurrenceDayOfWeek,
+          recurrenceDayOfMonth: data.recurrenceDayOfMonth ?? task.recurrenceDayOfMonth,
+        };
+        const nextDueDate = nextRecurringDueDate(recurrenceState, completedAt);
+        if (nextDueDate) {
+          data.completedAt = null;
+          data.dueDate = nextDueDate;
+          data.recurrenceLastCompletedAt = completedAt;
+        } else {
+          data.completedAt = completedAt;
+        }
+      }
     }
 
     const updated = await prisma.task.update({

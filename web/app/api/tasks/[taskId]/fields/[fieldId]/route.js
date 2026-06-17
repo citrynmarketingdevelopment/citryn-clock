@@ -5,10 +5,10 @@ import { canUserAccessProject } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
 import { taskInclude, toTaskPayload } from "@/lib/task-payload";
 
-// value may be string | number | boolean | null (depends on the field type);
+// value may be scalar JSON, object/array JSON, or null (depends on the field type);
 // null clears the value.
 const setValueSchema = z.object({
-  value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+  value: z.any().nullable(),
 });
 
 export async function PUT(request, { params }) {

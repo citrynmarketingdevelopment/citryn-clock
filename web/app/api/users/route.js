@@ -113,3 +113,65 @@ export async function DELETE(request) {
     return NextResponse.json({ error: "Unable to delete user." }, { status: 500 });
   }
 }
+
+export async function PATCH(request) {
+  let adminUser;
+  try {
+    adminUser = await requireAdmin(request);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error && error.message === "FORBIDDEN" ? "Forbidden." : "Unauthorized." },
+      { status: error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401 },
+    );
+  }
+
+  if (typeof prisma.user?.update !== "function" || typeof prisma.user?.count !== "function") {
+    return NextResponse.json({ error: "User model is unavailable." }, { status: 503 });
+  }
+
+  try {
+    const payload = await request.json().catch(() => null);
+    const userId = String(payload?.userId || "").trim();
+    const role = String(payload?.role || "").trim();
+
+    if (!userId || !Object.values(Role).includes(role)) {
+      return NextResponse.json({ error: "Valid userId and role are required." }, { status: 400 });
+    }
+
+    if (userId === adminUser.id && role !== Role.ADMIN) {
+      return NextResponse.json({ error: "You cannot remove your own admin access." }, { status: 400 });
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+
+    if (!target) {
+      return NextResponse.json({ error: "User not found." }, { status: 404 });
+    }
+
+    if (target.role === Role.ADMIN && role !== Role.ADMIN) {
+      const adminCount = await prisma.user.count({ where: { role: Role.ADMIN } });
+      if (adminCount <= 1) {
+        return NextResponse.json({ error: "At least one admin account must remain." }, { status: 400 });
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { role },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    return NextResponse.json({ user: updatedUser });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update user." }, { status: 500 });
+  }
+}

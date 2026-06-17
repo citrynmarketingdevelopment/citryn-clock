@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import WorkspaceShell from "@/components/workspace-shell";
+import { PageIconBadge } from "@/components/page-icon-picker";
 import ProjectCreateDialog from "@/components/project-create-dialog";
 import { initials } from "@/lib/task-format";
 
@@ -90,7 +91,11 @@ export default function ProjectsPage() {
                 className="projects-quicklist-item"
                 onClick={() => router.push(`/projects/${project.id}`)}
               >
-                <span className="projects-quicklist-badge">{initials(project.name)}</span>
+                <PageIconBadge
+                  storageKey={`citryn:page-icon:project:${project.id}`}
+                  fallback={initials(project.name)}
+                  className="projects-quicklist-badge"
+                />
                 <span className="projects-quicklist-main">
                   <strong>{project.name}</strong>
                   <small>{project.taskCount} tasks · {project.dueSoonCount} due soon</small>

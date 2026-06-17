@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { createField, deleteField, getProjectFields, setFieldValue } from "@/lib/task-client";
+import { createField, deleteField, getProjectFields, setFieldValue, setTaskSubtasks } from "@/lib/task-client";
 
-const fieldTypes = ["TEXT", "NUMBER", "SELECT", "DATE", "CHECKBOX"];
+const fieldTypes = ["TEXT", "NUMBER", "SELECT", "DATE", "CHECKBOX", "SUBTASKS"];
 
 function currentValue(task, fieldId) {
   const entry = (task.fieldValues ?? []).find((value) => value.fieldId === fieldId);
@@ -50,6 +50,27 @@ export default function TaskCustomFields({ task, projectId, canManageFields = fa
     }
   }
 
+  async function saveSubtasks(items) {
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await setTaskSubtasks(task.id, items);
+      onUpdated?.(data.task);
+      if (data.field && !fields.some((field) => field.id === data.field.id)) {
+        await loadFields();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save subtasks.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addSubtasksProperty() {
+    await saveSubtasks([]);
+    await loadFields();
+  }
+
   async function onAddField(event) {
     event.preventDefault();
     const name = form.name.trim();
@@ -93,6 +114,78 @@ export default function TaskCustomFields({ task, projectId, canManageFields = fa
   function renderEditor(field) {
     const value = currentValue(task, field.id);
     switch (field.type) {
+      case "SUBTASKS": {
+        const items = Array.isArray(value) ? value : [];
+        const completedCount = items.filter((item) => item.completed).length;
+        function saveItems(nextItems) {
+          saveSubtasks(nextItems);
+        }
+        return (
+          <div className="subtasks-property">
+            <div className="subtasks-progress">
+              <span>{items.length ? `${completedCount}/${items.length}` : "0/0"}</span>
+              <div className="subtasks-progress-rail">
+                <div
+                  className="subtasks-progress-fill"
+                  style={{ width: items.length ? `${Math.round((completedCount / items.length) * 100)}%` : "0%" }}
+                />
+              </div>
+            </div>
+            <div className="subtasks-list">
+              {items.map((item) => (
+                <div key={item.id} className="subtasks-row">
+                  <button
+                    type="button"
+                    className={`aflist-check ${item.completed ? "checked" : ""}`}
+                    disabled={busy}
+                    onClick={() =>
+                      saveItems(items.map((candidate) => (candidate.id === item.id ? { ...candidate, completed: !candidate.completed } : candidate)))
+                    }
+                    aria-label={item.completed ? "Mark subtask incomplete" : "Mark subtask complete"}
+                  >
+                    {item.completed ? "x" : ""}
+                  </button>
+                  <input
+                    type="text"
+                    defaultValue={item.title}
+                    disabled={busy}
+                    onBlur={(event) => {
+                      const title = event.target.value.trim();
+                      if (!title || title === item.title) return;
+                      saveItems(items.map((candidate) => (candidate.id === item.id ? { ...candidate, title } : candidate)));
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="subtasks-delete"
+                    disabled={busy}
+                    onClick={() => saveItems(items.filter((candidate) => candidate.id !== item.id))}
+                    aria-label="Delete subtask"
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+            </div>
+            <form
+              className="subtasks-add"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const input = event.currentTarget.elements.subtaskTitle;
+                const title = input.value.trim();
+                if (!title) return;
+                saveItems([...items, { id: crypto.randomUUID(), title, completed: false }]);
+                input.value = "";
+              }}
+            >
+              <input name="subtaskTitle" type="text" placeholder="Add subtask" disabled={busy} />
+              <button type="submit" disabled={busy}>
+                Add
+              </button>
+            </form>
+          </div>
+        );
+      }
       case "NUMBER":
         return (
           <input
@@ -160,6 +253,8 @@ export default function TaskCustomFields({ task, projectId, canManageFields = fa
 
   if (!projectId) return null;
 
+  const hasSubtasks = fields.some((field) => field.type === "SUBTASKS");
+
   return (
     <div className="taskdialog-customfields">
       {loading ? <p className="muted">Loading properties...</p> : null}
@@ -184,8 +279,22 @@ export default function TaskCustomFields({ task, projectId, canManageFields = fa
         </div>
       ))}
 
-      {canManageFields ? (
-        adding ? (
+      {canManageFields || !hasSubtasks ? (
+        <div className="taskdialog-property-actions">
+          {!hasSubtasks ? (
+            <button type="button" className="taskdialog-addfield-btn" disabled={busy} onClick={addSubtasksProperty}>
+              + Subtasks
+            </button>
+          ) : null}
+          {canManageFields && !adding ? (
+            <button type="button" className="taskdialog-addfield-btn" disabled={busy} onClick={() => setAdding(true)}>
+              + Add property
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {canManageFields && adding ? (
           <form className="taskdialog-addfield" onSubmit={onAddField}>
             <input
               autoFocus
@@ -223,11 +332,6 @@ export default function TaskCustomFields({ task, projectId, canManageFields = fa
               </button>
             </div>
           </form>
-        ) : (
-          <button type="button" className="taskdialog-addfield-btn" disabled={busy} onClick={() => setAdding(true)}>
-            + Add property
-          </button>
-        )
       ) : null}
 
       {error ? <p className="error">{error}</p> : null}

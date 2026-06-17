@@ -1,36 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
-
-function toTask(task) {
-  return {
-    id: task.id,
-    title: task.title,
-    description: task.description,
-    laborMinutes: task.laborMinutes,
-    priority: task.priority,
-    dueDate: task.dueDate,
-    completedAt: task.completedAt,
-    project: {
-      id: task.project.id,
-      name: task.project.name,
-    },
-    column: task.column
-      ? {
-          id: task.column.id,
-          name: task.column.name,
-          order: task.column.order,
-        }
-      : null,
-    assignees: task.assignments.map((assignment) => ({
-      id: assignment.user.id,
-      name: assignment.user.name,
-      email: assignment.user.email,
-    })),
-    createdAt: task.createdAt,
-    updatedAt: task.updatedAt,
-  };
-}
+import { taskInclude, toTaskPayload } from "@/lib/task-payload";
 
 export async function GET(request) {
   let user;
@@ -47,31 +18,17 @@ export async function GET(request) {
   try {
     const tasks = await prisma.task.findMany({
       where: {
-        assignments: {
-          some: {
-            userId: user.id,
-          },
-        },
-      },
-      include: {
         project: {
-          select: { id: true, name: true },
-        },
-        column: {
-          select: { id: true, name: true, order: true },
-        },
-        assignments: {
-          include: {
-            user: {
-              select: { id: true, name: true, email: true },
-            },
+          is: {
+            OR: [{ ownerId: user.id }, { members: { some: { userId: user.id } } }],
           },
         },
       },
+      include: taskInclude,
       orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }],
     });
 
-    return NextResponse.json({ tasks: tasks.map(toTask) });
+    return NextResponse.json({ tasks: tasks.map(toTaskPayload) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load tasks." }, { status: 500 });
   }

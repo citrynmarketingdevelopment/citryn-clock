@@ -9,16 +9,12 @@ import {
   setAssignees,
   updateTask,
 } from "@/lib/task-client";
-import { initials, priorities } from "@/lib/task-format";
+import { initials, priorities, priorityMeta } from "@/lib/task-format";
+import { toDateValue } from "@/lib/task-recurrence";
 import TaskCustomFields from "@/components/task-custom-fields";
-
-function toDateInputValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${month}-${day}`;
-}
+import TaskDatePicker from "@/components/task-date-picker";
+import TaskRecurrenceControls from "@/components/task-recurrence-controls";
+import TaskAssigneeField from "@/components/task-assignee-field";
 
 // Centered AppFlowy row-detail dialog. Used by the board, My Tasks, and Due Dates.
 // `canEdit` enables inline editing; `projectColumns` enables the Column selector.
@@ -34,8 +30,6 @@ export default function TaskDetailDialog({
   const [current, setCurrent] = useState(task);
   const [title, setTitle] = useState(task?.title ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
-  const [members, setMembers] = useState([]);
-  const [editingAssignees, setEditingAssignees] = useState(false);
   const [showAddLink, setShowAddLink] = useState(false);
   const [showAddImage, setShowAddImage] = useState(false);
   const [linkForm, setLinkForm] = useState({ url: "", label: "" });
@@ -48,7 +42,6 @@ export default function TaskDetailDialog({
     setCurrent(task);
     setTitle(task?.title ?? "");
     setDescription(task?.description ?? "");
-    setEditingAssignees(false);
     setShowAddLink(false);
     setShowAddImage(false);
     setError(null);
@@ -70,25 +63,9 @@ export default function TaskDetailDialog({
 
   const projectId = current?.projectId ?? current?.project?.id ?? null;
 
-  // Load project members for the assignee editor.
-  useEffect(() => {
-    if (!canEdit || !projectId) return;
-    let cancelled = false;
-    (async () => {
-      const response = await fetch(`/api/projects/${projectId}/members`, { cache: "no-store" });
-      const data = await parseJsonSafe(response);
-      if (!cancelled && response.ok) {
-        setMembers((data.members ?? []).map((member) => member.user));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [canEdit, projectId]);
-
   const completed = Boolean(current?.completedAt);
   const assignees = useMemo(() => current?.assignees ?? [], [current]);
-  const assigneeIds = useMemo(() => new Set(assignees.map((a) => a.id)), [assignees]);
+  const priority = priorityMeta(current?.priority);
 
   const applyTask = useCallback(
     (updated) => {
@@ -117,6 +94,13 @@ export default function TaskDetailDialog({
     });
   }
 
+  function patchFields(values) {
+    return runEdit(async () => {
+      const updated = await updateTask(current.id, values);
+      applyTask(updated);
+    });
+  }
+
   function commitTitle() {
     const next = title.trim();
     if (!next || next === current.title) {
@@ -131,10 +115,7 @@ export default function TaskDetailDialog({
     patch("description", description);
   }
 
-  function toggleAssignee(userId) {
-    const next = assigneeIds.has(userId)
-      ? assignees.filter((a) => a.id !== userId).map((a) => a.id)
-      : [...assignees.map((a) => a.id), userId];
+  function updateAssignees(next) {
     runEdit(async () => {
       const nextAssignees = await setAssignees(current.id, next);
       applyTask({ ...current, assignees: nextAssignees });
@@ -183,15 +164,37 @@ export default function TaskDetailDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <header className="taskdialog-top">
-          <button
-            type="button"
-            className={`taskdialog-complete ${completed ? "done" : ""}`}
-            disabled={saving}
-            onClick={() => patch("completed", !completed)}
-          >
+          <div className="taskdialog-top-actions">
+            <button
+              type="button"
+              className={`taskdialog-complete ${completed ? "done" : ""}`}
+              disabled={saving}
+              onClick={() => patch("completed", !completed)}
+            >
             <span className="taskdialog-complete-box">{completed ? "✓" : ""}</span>
             {completed ? "Completed" : "Mark complete"}
-          </button>
+            </button>
+            <div className={`taskdialog-priority-chip ${priority.key}`}>
+              <span className={`priority-pulse-dot ${priority.key}`} />
+              {canEdit ? (
+                <select
+                  className="taskdialog-priority-select"
+                  value={current.priority}
+                  disabled={saving}
+                  onChange={(event) => patch("priority", event.target.value)}
+                  aria-label="Task priority"
+                >
+                  {priorities.map((value) => (
+                    <option key={value} value={value}>
+                      {priorityMeta(value).label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="taskdialog-priority-label">{priority.label}</span>
+              )}
+            </div>
+          </div>
           <button type="button" className="taskdialog-close" onClick={onClose} disabled={saving}>
             Close
           </button>
@@ -213,45 +216,66 @@ export default function TaskDetailDialog({
             <h2 className="taskdialog-title-static">{current.title}</h2>
           )}
 
-          <div className="taskdialog-props">
-            <div className="taskdialog-prop">
-              <span className="taskdialog-prop-label">Priority</span>
+          <div className="taskdialog-inline-prop">
+            <span className="taskdialog-inline-label">Assignee</span>
+            <div className="taskdialog-inline-value">
               {canEdit ? (
-                <select
-                  className="taskdialog-prop-value"
-                  value={current.priority}
+                <TaskAssigneeField
+                  projectId={projectId}
+                  value={assignees.map((assignee) => assignee.id)}
+                  selectedUsers={assignees}
                   disabled={saving}
-                  onChange={(event) => patch("priority", event.target.value)}
-                >
-                  {priorities.map((priority) => (
-                    <option key={priority} value={priority}>
-                      {priority}
-                    </option>
+                  onChange={updateAssignees}
+                />
+              ) : assignees.length ? (
+                <div className="taskdialog-assignees">
+                  {assignees.map((assignee) => (
+                    <span key={assignee.id} className="taskdialog-assignee" title={assignee.name}>
+                      <span className="taskdialog-assignee-avatar">{initials(assignee.name)}</span>
+                      {assignee.name}
+                    </span>
                   ))}
-                </select>
+                </div>
               ) : (
-                <span className="taskdialog-prop-value">{current.priority}</span>
+                <span className="muted">No assignees</span>
               )}
             </div>
+          </div>
 
+          <div className="taskdialog-props">
             <div className="taskdialog-prop">
               <span className="taskdialog-prop-label">Due date</span>
               {canEdit ? (
-                <input
-                  type="date"
-                  className="taskdialog-prop-value"
-                  value={toDateInputValue(current.dueDate)}
-                  disabled={saving}
-                  onChange={(event) =>
-                    patch("dueDate", event.target.value ? new Date(`${event.target.value}T00:00:00`).toISOString() : null)
-                  }
-                />
+                <div className="taskdialog-prop-value">
+                  <TaskDatePicker
+                    value={toDateValue(current.dueDate)}
+                    disabled={saving}
+                    onChange={(value) => patch("dueDate", value ? new Date(`${value}T00:00:00`).toISOString() : null)}
+                  />
+                </div>
               ) : (
                 <span className="taskdialog-prop-value">
                   {current.dueDate ? new Date(current.dueDate).toLocaleDateString() : "No date"}
                 </span>
               )}
             </div>
+
+            {canEdit ? (
+              <TaskRecurrenceControls
+                frequency={current.recurrenceFrequency ?? "NONE"}
+                interval={current.recurrenceInterval ?? 1}
+                dayOfWeek={current.recurrenceDayOfWeek}
+                dayOfMonth={current.recurrenceDayOfMonth}
+                dueDate={toDateValue(current.dueDate)}
+                disabled={saving}
+                onChange={patchFields}
+              />
+            ) : current.recurrenceFrequency && current.recurrenceFrequency !== "NONE" ? (
+              <div className="taskdialog-prop">
+                <span className="taskdialog-prop-label">Repeat</span>
+                <span className="taskdialog-prop-value">{current.recurrenceFrequency.toLowerCase()}</span>
+              </div>
+            ) : null}
 
             <div className="taskdialog-prop">
               <span className="taskdialog-prop-label">Labor (min)</span>
@@ -298,50 +322,6 @@ export default function TaskDetailDialog({
               </div>
             ) : null}
 
-            <div className="taskdialog-prop align-top">
-              <span className="taskdialog-prop-label">Assignees</span>
-              <div className="taskdialog-prop-value">
-                <div className="taskdialog-assignees">
-                  {assignees.length ? (
-                    assignees.map((assignee) => (
-                      <span key={assignee.id} className="taskdialog-assignee" title={assignee.name}>
-                        <span className="taskdialog-assignee-avatar">{initials(assignee.name)}</span>
-                        {assignee.name}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="muted">No assignees</span>
-                  )}
-                  {canEdit ? (
-                    <button
-                      type="button"
-                      className="taskdialog-assignee-edit"
-                      disabled={saving}
-                      onClick={() => setEditingAssignees((value) => !value)}
-                    >
-                      {editingAssignees ? "Done" : "Edit"}
-                    </button>
-                  ) : null}
-                </div>
-                {canEdit && editingAssignees ? (
-                  <div className="taskdialog-assignee-options">
-                    {members.length === 0 ? <p className="muted">No project members.</p> : null}
-                    {members.map((member) => (
-                      <label key={member.id} className="taskdialog-assignee-option">
-                        <input
-                          type="checkbox"
-                          checked={assigneeIds.has(member.id)}
-                          disabled={saving}
-                          onChange={() => toggleAssignee(member.id)}
-                        />
-                        <span>{member.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
             {current.project?.name ? (
               <div className="taskdialog-prop">
                 <span className="taskdialog-prop-label">Project</span>
@@ -382,11 +362,13 @@ export default function TaskDetailDialog({
             <div className="taskdialog-section-head">
               <h3>Attachments</h3>
               <div className="taskdialog-attachment-actions">
-                <button type="button" className="secondary" disabled={saving} onClick={() => setShowAddImage((v) => !v)}>
-                  + Image
+                <button type="button" className="secondary icon-action" disabled={saving} onClick={() => setShowAddImage((v) => !v)}>
+                  <span>↑</span>
+                  Upload
                 </button>
-                <button type="button" className="secondary" disabled={saving} onClick={() => setShowAddLink((v) => !v)}>
-                  + Link
+                <button type="button" className="secondary icon-action" disabled={saving} onClick={() => setShowAddLink((v) => !v)}>
+                  <span>↗</span>
+                  Link
                 </button>
               </div>
             </div>

@@ -158,6 +158,19 @@ export async function setFieldValue(taskId, fieldId, value) {
   return data.task;
 }
 
+export async function setTaskSubtasks(taskId, subtasks) {
+  const response = await fetch(`/api/tasks/${taskId}/subtasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subtasks }),
+  });
+  const data = await parseJsonSafe(response);
+  if (!response.ok || !data.task) {
+    throw new Error(data.error ?? "Unable to update subtasks.");
+  }
+  return data;
+}
+
 export async function reorderProjects(orderedIds) {
   const response = await fetch("/api/projects", {
     method: "PATCH",

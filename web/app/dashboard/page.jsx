@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import PageIconPicker from "@/components/page-icon-picker";
 import WorkspaceShell from "@/components/workspace-shell";
 import { parseDayKey } from "@/lib/day";
 
@@ -246,9 +247,13 @@ export default function DashboardPage() {
 
       <section className="track-header">
         <div className="track-header-row">
-          <div>
-            <h1 className="track-title">Track Time</h1>
-            <p className="track-subtitle">Desktop workspace</p>
+          <div className="appflowy-page-title">
+            <PageIconPicker storageKey="citryn:page-icon:dashboard" fallback="⏱️" label="Change dashboard icon" />
+            <div>
+              <div className="appflowy-breadcrumb">General › Timeclock</div>
+              <h1 className="track-title">Track Time</h1>
+              <p className="track-subtitle">Desktop workspace</p>
+            </div>
           </div>
         </div>
       </section>

@@ -1,17 +1,23 @@
 "use client";
 
-import { formatDueDate, initials, isTaskCompleted } from "@/lib/task-format";
+import { formatDueDate, initials, isTaskCompleted, priorityMeta } from "@/lib/task-format";
+import { recurrenceLabel } from "@/lib/task-recurrence";
 
 // Inner content of a board card, shared between the live (draggable) card and
 // the drag overlay. The board wraps this in its own draggable <button>.
 export function TaskCardBody({ task, completed }) {
   const dueLabel = formatDueDate(task.dueDate);
   const assignees = task.assignees ?? [];
+  const priority = priorityMeta(task.priority);
+  const repeats = recurrenceLabel(task);
   return (
     <>
       <div className="projectboard-card-head">
         <div className="projectboard-card-title">{task.title}</div>
-        <span className={`task-priority-chip ${task.priority.toLowerCase()}`}>{task.priority}</span>
+        <span className={`task-priority-chip ${priority.key}`}>
+          <span className={`priority-pulse-dot ${priority.key}`} />
+          {priority.label}
+        </span>
       </div>
 
       <div className="projectboard-card-meta">
@@ -24,6 +30,7 @@ export function TaskCardBody({ task, completed }) {
             {task.attachments.length} file{task.attachments.length > 1 ? "s" : ""}
           </span>
         ) : null}
+        {repeats ? <span className="projectboard-card-repeat">Repeats</span> : null}
       </div>
 
       <div className="projectboard-card-foot">
@@ -46,17 +53,26 @@ export function TaskCardBody({ task, completed }) {
 }
 
 // Compact chip used inside calendar day cells.
-export function TaskChip({ task, onOpen }) {
+export function TaskChip({ task, onOpen, draggable = false }) {
   const completed = isTaskCompleted(task);
+  const priority = priorityMeta(task.priority);
+  const repeats = recurrenceLabel(task);
   return (
     <button
       type="button"
-      className={`afcal-chip priority-${task.priority.toLowerCase()} ${completed ? "completed" : ""}`}
+      draggable={draggable}
+      className={`afcal-chip priority-${priority.key} ${completed ? "completed" : ""}`}
+      onDragStart={(event) => {
+        if (!draggable) return;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/task-id", task.id);
+      }}
       onClick={() => onOpen?.(task)}
-      title={task.title}
+      title={repeats ? `${task.title} - ${repeats}` : task.title}
     >
-      <span className="afcal-chip-dot" />
+      <span className={`priority-pulse-dot compact ${priority.key}`} />
       <span className="afcal-chip-title">{task.title}</span>
+      {repeats ? <span className="afcal-chip-repeat" aria-label={repeats}>R</span> : null}
     </button>
   );
 }

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { canUserAccessProject } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
+import { ensureProjectAssigneeAccess } from "@/lib/task-assignee-access";
 
 const assignTaskSchema = z.object({
   userIds: z.array(z.string().trim().min(1)),
@@ -40,27 +41,8 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const members = await prisma.projectMember.findMany({
-      where: {
-        projectId: task.projectId,
-        userId: { in: requestedIds },
-      },
-      select: { userId: true },
-    });
-    const allowedIds = new Set(members.map((item) => item.userId));
-    const projectOwner = await prisma.project.findUnique({
-      where: { id: task.projectId },
-      select: { ownerId: true },
-    });
-    if (projectOwner) {
-      allowedIds.add(projectOwner.ownerId);
-    }
-
-    if (requestedIds.some((id) => !allowedIds.has(id))) {
-      return NextResponse.json({ error: "One or more assignees do not have access to this project." }, { status: 400 });
-    }
-
     await prisma.$transaction(async (tx) => {
+      await ensureProjectAssigneeAccess(tx, task.projectId, requestedIds);
       if (payload.replace) {
         await tx.taskAssignment.deleteMany({ where: { taskId: task.id } });
       }
@@ -88,7 +70,10 @@ export async function POST(request, { params }) {
       taskId: task.id,
       assignees: assignments.map((assignment) => assignment.user),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "INVALID_ASSIGNEE") {
+      return NextResponse.json({ error: "One or more assignees could not be found." }, { status: 400 });
+    }
     return NextResponse.json({ error: "Unable to assign task." }, { status: 400 });
   }
 }

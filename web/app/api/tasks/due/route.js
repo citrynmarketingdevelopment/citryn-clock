@@ -20,6 +20,11 @@ function toTask(task) {
     priority: task.priority,
     dueDate: task.dueDate,
     completedAt: task.completedAt,
+    recurrenceFrequency: task.recurrenceFrequency ?? "NONE",
+    recurrenceInterval: task.recurrenceInterval ?? 1,
+    recurrenceDayOfWeek: task.recurrenceDayOfWeek ?? null,
+    recurrenceDayOfMonth: task.recurrenceDayOfMonth ?? null,
+    recurrenceLastCompletedAt: task.recurrenceLastCompletedAt ?? null,
     project: {
       id: task.project.id,
       name: task.project.name,

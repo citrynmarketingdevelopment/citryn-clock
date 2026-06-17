@@ -94,12 +94,11 @@ export async function POST(request, { params }) {
   } catch (error) {
     return errorResponse(error);
   }
-  if (!auth.canManage) {
-    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-  }
-
   try {
     const payload = createFieldSchema.parse(await request.json());
+    if (!auth.canManage && payload.type !== ProjectFieldType.SUBTASKS) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
     const last = await prisma.projectField.findFirst({
       where: { projectId },
       orderBy: { order: "desc" },

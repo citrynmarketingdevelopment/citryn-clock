@@ -14,16 +14,16 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import WorkspaceShell from "@/components/workspace-shell";
+import PageIconPicker from "@/components/page-icon-picker";
 import ProjectMembers from "@/components/project-members";
 import ViewSwitcher from "@/components/view-switcher";
 import TaskListView from "@/components/task-list-view";
 import MonthCalendar from "@/components/month-calendar";
 import TaskDetailDialog from "@/components/task-detail-dialog";
+import TaskCreateDialog from "@/components/task-create-dialog";
 import { TaskCardBody } from "@/components/task-card";
 import { addColumn, deleteColumn, renameColumn, reorderColumns, updateTask } from "@/lib/task-client";
-import { initials, isTaskCompleted, startOfMonth } from "@/lib/task-format";
-
-const priorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+import { dateKey, initials, isTaskCompleted, startOfMonth } from "@/lib/task-format";
 
 const boardViews = [
   { key: "board", label: "Board" },
@@ -166,10 +166,8 @@ export default function ProjectBoardPage() {
 
   const [user, setUser] = useState(null);
   const [project, setProject] = useState(null);
-  const [users, setUsers] = useState([]);
   const [error, setError] = useState(null);
   const [loadingBoard, setLoadingBoard] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [activeId, setActiveId] = useState(null);
   const [view, setView] = useState("board");
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
@@ -182,19 +180,10 @@ export default function ProjectBoardPage() {
     useSensor(KeyboardSensor),
   );
   const [showComposer, setShowComposer] = useState(false);
+  const [composerColumnId, setComposerColumnId] = useState("");
+  const [composerDueDate, setComposerDueDate] = useState("");
   const [showMembers, setShowMembers] = useState(false);
   const [activeTask, setActiveTask] = useState(null);
-  const [assigneeQuery, setAssigneeQuery] = useState("");
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    laborValue: "60",
-    laborUnit: "MINUTES",
-    priority: "MEDIUM",
-    dueDate: "",
-    columnId: "",
-    assigneeUserIds: [],
-  });
 
   const loadData = useCallback(async (showSkeleton = true) => {
     if (showSkeleton) {
@@ -210,28 +199,15 @@ export default function ProjectBoardPage() {
       const meData = await parseJsonSafe(meRes);
       setUser(meData.user);
 
-      const [projectRes, usersRes] = await Promise.all([
-        fetch(`/api/projects/${projectId}`, { cache: "no-store" }),
-        fetch("/api/users", { cache: "no-store" }),
-      ]);
+      const projectRes = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
       const projectData = await parseJsonSafe(projectRes);
-      const usersData = await parseJsonSafe(usersRes);
 
       if (!projectRes.ok) {
         setError(projectData.error ?? "Unable to load project.");
         return;
       }
-      if (!usersRes.ok) {
-        setError(usersData.error ?? "Unable to load users.");
-        return;
-      }
 
       setProject(projectData.project);
-      setUsers(usersData.users ?? []);
-      setForm((current) => ({
-        ...current,
-        columnId: projectData.project.columns?.[0]?.id ?? "",
-      }));
     } finally {
       setLoadingBoard(false);
     }
@@ -242,41 +218,22 @@ export default function ProjectBoardPage() {
     loadData().catch(() => setError("Unable to load project board."));
   }, [loadData, projectId]);
 
-  // Scroll lock + Esc for the create-task composer (the detail dialog manages its own).
-  useEffect(() => {
-    if (!showComposer) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    function onKeyDown(event) {
-      if (event.key === "Escape" && !saving) setShowComposer(false);
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [saving, showComposer]);
-
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
     router.refresh();
   }
 
-  function openComposer(columnId = null) {
+  function openComposer(columnId = null, dueDate = "") {
     setError(null);
-    setAssigneeQuery("");
-    setForm((current) => ({
-      ...current,
-      columnId: columnId ?? current.columnId ?? project?.columns?.[0]?.id ?? "",
-    }));
+    setComposerColumnId(columnId ?? project?.columns?.[0]?.id ?? "");
+    setComposerDueDate(dueDate);
     setShowComposer(true);
   }
 
   function closeComposer() {
-    if (saving) return;
-    setAssigneeQuery("");
     setShowComposer(false);
+    setComposerDueDate("");
   }
 
   function mergeUpdatedTask(updatedTask) {
@@ -288,6 +245,19 @@ export default function ProjectBoardPage() {
       };
     });
     setActiveTask((current) => (current?.id === updatedTask.id ? updatedTask : current));
+  }
+
+  function addCreatedTask(task) {
+    setProject((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        tasks: [task, ...(current.tasks ?? [])],
+      };
+    });
+    setActiveTask(task);
+    setShowComposer(false);
+    setComposerDueDate("");
   }
 
   function setTaskColumnLocally(taskId, columnId) {
@@ -358,6 +328,41 @@ export default function ProjectBoardPage() {
     }
   }
 
+  function openCalendarComposer(day) {
+    openComposer(null, dateKey(day));
+  }
+
+  async function moveTaskToDay(taskId, day) {
+    const previous = (project?.tasks ?? []).find((task) => task.id === taskId);
+    if (!previous) return;
+
+    const dueDate = new Date(`${dateKey(day)}T00:00:00`).toISOString();
+    setError(null);
+    setProject((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        tasks: (current.tasks ?? []).map((task) => (task.id === taskId ? { ...task, dueDate } : task)),
+      };
+    });
+    setActiveTask((current) => (current?.id === taskId ? { ...current, dueDate } : current));
+
+    try {
+      const updated = await updateTask(taskId, { dueDate });
+      mergeUpdatedTask(updated);
+    } catch (err) {
+      setProject((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          tasks: (current.tasks ?? []).map((task) => (task.id === taskId ? previous : task)),
+        };
+      });
+      setActiveTask((current) => (current?.id === taskId ? previous : current));
+      setError(err instanceof Error ? err.message : "Unable to move task.");
+    }
+  }
+
   // --- Column editing ---
   async function handleAddColumn() {
     const name = newColumnName.trim();
@@ -425,69 +430,6 @@ export default function ProjectBoardPage() {
     }
   }
 
-  async function onCreateTask(event) {
-    event.preventDefault();
-    setSaving(true);
-    setError(null);
-
-    const rawLaborValue = Number(form.laborValue);
-    const laborMinutes =
-      form.laborUnit === "HOURS" ? Math.round(rawLaborValue * 60) : Math.round(rawLaborValue);
-    if (!Number.isFinite(laborMinutes) || laborMinutes < 1) {
-      setError("Labor must be greater than zero.");
-      setSaving(false);
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/projects/${projectId}/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-          laborMinutes,
-          priority: form.priority,
-          dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
-          columnId: form.columnId || null,
-          assigneeUserIds: form.assigneeUserIds,
-        }),
-      });
-      const data = await parseJsonSafe(response);
-      if (!response.ok) {
-        setError(data.error ?? "Unable to create task.");
-        return;
-      }
-
-      setForm((current) => ({
-        ...current,
-        title: "",
-        description: "",
-        laborValue: "60",
-        laborUnit: "MINUTES",
-        priority: "MEDIUM",
-        dueDate: "",
-        assigneeUserIds: [],
-      }));
-      closeComposer();
-      await loadData(false);
-    } catch {
-      setError("Unable to create task.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function toggleAssignee(userId) {
-    setForm((current) => {
-      const exists = current.assigneeUserIds.includes(userId);
-      if (exists) {
-        return { ...current, assigneeUserIds: current.assigneeUserIds.filter((id) => id !== userId) };
-      }
-      return { ...current, assigneeUserIds: [...current.assigneeUserIds, userId] };
-    });
-  }
-
   const taskMap = useMemo(() => {
     if (!project?.columns) return new Map();
     return groupTasksByColumn(project.columns, project.tasks ?? []);
@@ -495,19 +437,13 @@ export default function ProjectBoardPage() {
 
   const candidateAssignees = useMemo(() => {
     if (!project) return [];
-    const memberIds = new Set([project.owner.id, ...(project.members ?? []).map((member) => member.user.id)]);
-    return users.filter((item) => memberIds.has(item.id));
-  }, [project, users]);
-
-  const filteredAssignees = useMemo(() => {
-    const query = assigneeQuery.trim().toLowerCase();
-    if (!query) return candidateAssignees;
-    return candidateAssignees.filter((candidate) => {
-      const name = (candidate.name || "").toLowerCase();
-      const email = (candidate.email || "").toLowerCase();
-      return name.includes(query) || email.includes(query);
+    const seen = new Set();
+    return [project.owner, ...(project.members ?? []).map((member) => member.user)].filter((candidate) => {
+      if (!candidate || seen.has(candidate.id)) return false;
+      seen.add(candidate.id);
+      return true;
     });
-  }, [candidateAssignees, assigneeQuery]);
+  }, [project]);
 
   const canManage = useMemo(() => {
     if (!user || !project) return false;
@@ -522,8 +458,13 @@ export default function ProjectBoardPage() {
       <section className="projectboard-shell">
         <header className="projectboard-top">
           <div className="projectboard-id-block">
-            <span className="projectboard-icon">{initials(project?.name)}</span>
+            <PageIconPicker
+              storageKey={`citryn:page-icon:project:${projectId}`}
+              fallback={initials(project?.name)}
+              label="Change project icon"
+            />
             <div>
+              <div className="appflowy-breadcrumb">General › Project</div>
               <h1>{project?.name || "Project board"}</h1>
               <p>{project?.description || "Kanban workflow for project execution."}</p>
             </div>
@@ -562,156 +503,16 @@ export default function ProjectBoardPage() {
         ) : null}
 
         {showComposer ? (
-          <div className="projectboard-modal-backdrop" onClick={closeComposer}>
-            <section
-              className="projectboard-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Create task"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header className="projectboard-modal-top">
-                <button type="button" className="projectboard-modal-close" onClick={closeComposer} disabled={saving}>
-                  Close
-                </button>
-                <button form="projectboard-create-task" type="submit" disabled={saving}>
-                  {saving ? "Creating..." : "Create task"}
-                </button>
-              </header>
-
-              <form id="projectboard-create-task" className="projectboard-modal-body" onSubmit={onCreateTask}>
-                <input
-                  required
-                  className="projectboard-modal-title"
-                  placeholder="Task title"
-                  value={form.title}
-                  onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-                />
-
-                <div className="projectboard-modal-grid">
-                  <div className="projectboard-modal-row">
-                    <label htmlFor="task-assignee-search">Assignee</label>
-                    <div className="projectboard-modal-field">
-                      <input
-                        id="task-assignee-search"
-                        type="text"
-                        placeholder="Search people"
-                        value={assigneeQuery}
-                        onChange={(event) => setAssigneeQuery(event.target.value)}
-                      />
-                      <div className="projectboard-modal-assignees">
-                        {candidateAssignees.length === 0 ? <p className="muted">No assignee</p> : null}
-                        {filteredAssignees.length === 0 && candidateAssignees.length > 0 ? (
-                          <p className="muted">No matches.</p>
-                        ) : null}
-                        {filteredAssignees.map((candidate) => (
-                          <label key={candidate.id} className="projectboard-modal-assignee-option">
-                            <input
-                              type="checkbox"
-                              checked={form.assigneeUserIds.includes(candidate.id)}
-                              onChange={() => toggleAssignee(candidate.id)}
-                            />
-                            <span>{candidate.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="projectboard-modal-row">
-                    <label htmlFor="task-due-date">Due date</label>
-                    <div className="projectboard-modal-field">
-                      <input
-                        id="task-due-date"
-                        type="date"
-                        value={form.dueDate}
-                        onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="projectboard-modal-row">
-                    <label htmlFor="task-column">Column</label>
-                    <div className="projectboard-modal-field">
-                      <select
-                        id="task-column"
-                        value={form.columnId}
-                        onChange={(event) => setForm((current) => ({ ...current, columnId: event.target.value }))}
-                      >
-                        {columns.map((column) => (
-                          <option key={column.id} value={column.id}>
-                            {column.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="projectboard-modal-row">
-                    <label htmlFor="task-priority">Priority</label>
-                    <div className="projectboard-modal-field">
-                      <select
-                        id="task-priority"
-                        value={form.priority}
-                        onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))}
-                      >
-                        {priorities.map((priority) => (
-                          <option key={priority} value={priority}>
-                            {priority}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="projectboard-modal-row">
-                    <label htmlFor="task-labor">Labor</label>
-                    <div className="projectboard-modal-field">
-                      <div className="projectboard-modal-labor">
-                        <input
-                          id="task-labor"
-                          required
-                          type="number"
-                          min={form.laborUnit === "HOURS" ? 0.25 : 1}
-                          step={form.laborUnit === "HOURS" ? 0.25 : 1}
-                          placeholder={form.laborUnit === "HOURS" ? "Labor hours" : "Labor minutes"}
-                          value={form.laborValue}
-                          onChange={(event) => setForm((current) => ({ ...current, laborValue: event.target.value }))}
-                        />
-                        <select
-                          aria-label="Labor unit"
-                          value={form.laborUnit}
-                          onChange={(event) => setForm((current) => ({ ...current, laborUnit: event.target.value }))}
-                        >
-                          <option value="MINUTES">Minutes</option>
-                          <option value="HOURS">Hours</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <section className="projectboard-modal-description">
-                  <h3>Description</h3>
-                  <textarea
-                    required
-                    placeholder="What is this task about?"
-                    value={form.description}
-                    onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                  />
-                </section>
-
-                <div className="projectboard-modal-footer">
-                  <button type="button" className="secondary" onClick={closeComposer} disabled={saving}>
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={saving}>
-                    {saving ? "Creating..." : "Create task"}
-                  </button>
-                </div>
-              </form>
-            </section>
-          </div>
+          <TaskCreateDialog
+            projects={project ? [{ id: project.id, name: project.name }] : []}
+            currentUser={user}
+            initialProjectId={projectId}
+            initialColumnId={composerColumnId}
+            initialDueDate={composerDueDate}
+            lockProject
+            onClose={closeComposer}
+            onCreated={addCreatedTask}
+          />
         ) : null}
 
         {activeTask ? (
@@ -858,6 +659,8 @@ export default function ProjectBoardPage() {
               month={calMonth}
               onChangeMonth={setCalMonth}
               onOpenTask={setActiveTask}
+              onCreateTaskForDay={openCalendarComposer}
+              onMoveTaskToDay={moveTaskToDay}
             />
           </section>
         )}

@@ -1,9 +1,10 @@
-import { TaskPriority } from "@prisma/client";
+import { TaskPriority, TaskRecurrenceFrequency } from "@prisma/client";
 import { z } from "zod";
 import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { requireProjectAccess } from "@/lib/project-access";
 import { prisma } from "@/lib/prisma";
+import { ensureProjectAssigneeAccess } from "@/lib/task-assignee-access";
 
 const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -11,6 +12,10 @@ const createTaskSchema = z.object({
   laborMinutes: z.coerce.number().int().min(1).max(10080),
   priority: z.nativeEnum(TaskPriority),
   dueDate: z.string().datetime().optional().nullable(),
+  recurrenceFrequency: z.nativeEnum(TaskRecurrenceFrequency).optional().default(TaskRecurrenceFrequency.NONE),
+  recurrenceInterval: z.coerce.number().int().min(1).max(52).optional().default(1),
+  recurrenceDayOfWeek: z.coerce.number().int().min(0).max(6).optional().nullable(),
+  recurrenceDayOfMonth: z.coerce.number().int().min(1).max(31).optional().nullable(),
   columnId: z.string().trim().min(1).optional().nullable(),
   assigneeUserIds: z.array(z.string().trim().min(1)).optional().default([]),
 });
@@ -26,6 +31,11 @@ function toTaskPayload(task) {
     priority: task.priority,
     dueDate: task.dueDate,
     completedAt: task.completedAt,
+    recurrenceFrequency: task.recurrenceFrequency ?? "NONE",
+    recurrenceInterval: task.recurrenceInterval ?? 1,
+    recurrenceDayOfWeek: task.recurrenceDayOfWeek ?? null,
+    recurrenceDayOfMonth: task.recurrenceDayOfMonth ?? null,
+    recurrenceLastCompletedAt: task.recurrenceLastCompletedAt ?? null,
     createdById: task.createdById,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
@@ -128,6 +138,7 @@ export async function POST(request, { params }) {
     const payload = createTaskSchema.parse(await request.json());
     const assigneeIds = [...new Set(payload.assigneeUserIds)];
     const dueDate = payload.dueDate ? new Date(payload.dueDate) : null;
+    const recurrenceFrequency = payload.recurrenceFrequency ?? TaskRecurrenceFrequency.NONE;
 
     const task = await prisma.$transaction(async (tx) => {
       if (payload.columnId) {
@@ -143,26 +154,7 @@ export async function POST(request, { params }) {
         }
       }
 
-      if (assigneeIds.length > 0) {
-        const assignees = await tx.projectMember.findMany({
-          where: {
-            projectId,
-            userId: { in: assigneeIds },
-          },
-          select: { userId: true },
-        });
-        const allowedIds = new Set(assignees.map((item) => item.userId));
-        const includesOwner = await tx.project.findFirst({
-          where: { id: projectId, ownerId: { in: assigneeIds } },
-          select: { ownerId: true },
-        });
-        if (includesOwner?.ownerId) {
-          allowedIds.add(includesOwner.ownerId);
-        }
-        if (allowedIds.size !== assigneeIds.length) {
-          throw new Error("INVALID_ASSIGNEE");
-        }
-      }
+      await ensureProjectAssigneeAccess(tx, projectId, assigneeIds);
 
       const created = await tx.task.create({
         data: {
@@ -173,6 +165,12 @@ export async function POST(request, { params }) {
           laborMinutes: payload.laborMinutes,
           priority: payload.priority,
           dueDate,
+          recurrenceFrequency,
+          recurrenceInterval: recurrenceFrequency === TaskRecurrenceFrequency.NONE ? 1 : payload.recurrenceInterval,
+          recurrenceDayOfWeek:
+            recurrenceFrequency === TaskRecurrenceFrequency.WEEKLY ? payload.recurrenceDayOfWeek ?? dueDate?.getDay() ?? null : null,
+          recurrenceDayOfMonth:
+            recurrenceFrequency === TaskRecurrenceFrequency.MONTHLY ? payload.recurrenceDayOfMonth ?? dueDate?.getDate() ?? null : null,
           createdById: user.id,
           assignments: {
             create: assigneeIds.map((assigneeId) => ({

@@ -31,6 +31,12 @@ enum TaskPriority {
   URGENT
 }
 
+enum TaskRecurrenceFrequency {
+  NONE
+  WEEKLY
+  MONTHLY
+}
+
 enum TaskAttachmentType {
   IMAGE
   LINK
@@ -42,26 +48,27 @@ enum ProjectFieldType {
   SELECT
   DATE
   CHECKBOX
+  SUBTASKS
 }
 
 model User {
-  id                   String           @id @default(cuid())
-  email                String           @unique
+  id                   String                 @id @default(cuid())
+  email                String                 @unique
   name                 String
   passwordHash         String
-  role                 Role             @default(EMPLOYEE)
+  role                 Role                   @default(EMPLOYEE)
   events               ClockEvent[]
-  ownedProjects        Project[]        @relation("ProjectOwner")
+  ownedProjects        Project[]              @relation("ProjectOwner")
   projectMemberships   ProjectMember[]
-  createdTasks         Task[]           @relation("TaskCreator")
+  createdTasks         Task[]                 @relation("TaskCreator")
   taskAttachments      TaskAttachment[]
-  taskAssignments      TaskAssignment[] @relation("TaskAssignee")
-  taskAssignmentsGiven TaskAssignment[] @relation("TaskAssignedBy")
+  taskAssignments      TaskAssignment[]       @relation("TaskAssignee")
+  taskAssignmentsGiven TaskAssignment[]       @relation("TaskAssignedBy")
   kitchenVideos        KitchenVideo[]
   dayOverrides         TimesheetDayOverride[] @relation("TimesheetOverrideUser")
   dayOverridesSet      TimesheetDayOverride[] @relation("TimesheetOverrideAdmin")
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 }
 
 model ClockEvent {
@@ -120,28 +127,34 @@ model ProjectColumn {
 }
 
 model Task {
-  id          String           @id @default(cuid())
-  projectId   String
-  columnId    String?
-  title       String
-  description String
-  laborMinutes Int
-  priority    TaskPriority     @default(MEDIUM)
-  dueDate     DateTime?
-  completedAt DateTime?
-  createdById String
-  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  column      ProjectColumn?   @relation(fields: [columnId], references: [id], onDelete: SetNull)
-  createdBy   User             @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  assignments TaskAssignment[]
-  attachments TaskAttachment[]
-  fieldValues TaskFieldValue[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id                        String                  @id @default(cuid())
+  projectId                 String
+  columnId                  String?
+  title                     String
+  description               String
+  laborMinutes              Int
+  priority                  TaskPriority            @default(MEDIUM)
+  dueDate                   DateTime?
+  completedAt               DateTime?
+  recurrenceFrequency       TaskRecurrenceFrequency @default(NONE)
+  recurrenceInterval        Int                     @default(1)
+  recurrenceDayOfWeek       Int?
+  recurrenceDayOfMonth      Int?
+  recurrenceLastCompletedAt DateTime?
+  createdById               String
+  project                   Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  column                    ProjectColumn?          @relation(fields: [columnId], references: [id], onDelete: SetNull)
+  createdBy                 User                    @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  assignments               TaskAssignment[]
+  attachments               TaskAttachment[]
+  fieldValues               TaskFieldValue[]
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
 
   @@index([projectId, createdAt])
   @@index([dueDate])
   @@index([completedAt])
+  @@index([recurrenceFrequency])
 }
 
 model ProjectField {
@@ -174,7 +187,7 @@ model TaskFieldValue {
 }
 
 model TaskAttachment {
-  id         String             @id @default(cuid())
+  id          String             @id @default(cuid())
   taskId      String
   createdById String
   type        TaskAttachmentType
@@ -192,30 +205,30 @@ model TaskAttachment {
 
 model TaskAssignment {
   id           String   @id @default(cuid())
-  taskId        String
-  userId        String
-  assignedById  String
-  task          Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user          User     @relation("TaskAssignee", fields: [userId], references: [id], onDelete: Cascade)
-  assignedBy    User     @relation("TaskAssignedBy", fields: [assignedById], references: [id], onDelete: Cascade)
-  assignedAt    DateTime @default(now())
+  taskId       String
+  userId       String
+  assignedById String
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user         User     @relation("TaskAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy   User     @relation("TaskAssignedBy", fields: [assignedById], references: [id], onDelete: Cascade)
+  assignedAt   DateTime @default(now())
 
   @@unique([taskId, userId])
   @@index([userId, assignedAt])
 }
 
 model KitchenVideo {
-  id               String               @id @default(cuid())
+  id               String                @id @default(cuid())
   uploaderId       String
   recipientEmail   String
   title            String?
   originalFileName String
   fileUrl          String
-  shareToken       String               @unique
-  uploader         User                 @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  shareToken       String                @unique
+  uploader         User                  @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
   comments         KitchenVideoComment[]
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   @@index([uploaderId, createdAt])
   @@index([shareToken])
@@ -234,15 +247,15 @@ model KitchenVideoComment {
 }
 
 model TimesheetDayOverride {
-  id                  String   @id @default(cuid())
-  userId              String
-  day                 DateTime @db.Date
-  workedSeconds       Int
-  updatedByAdminId    String
-  user                User     @relation("TimesheetOverrideUser", fields: [userId], references: [id], onDelete: Cascade)
-  updatedByAdmin      User     @relation("TimesheetOverrideAdmin", fields: [updatedByAdminId], references: [id], onDelete: Restrict)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id               String   @id @default(cuid())
+  userId           String
+  day              DateTime @db.Date
+  workedSeconds    Int
+  updatedByAdminId String
+  user             User     @relation("TimesheetOverrideUser", fields: [userId], references: [id], onDelete: Cascade)
+  updatedByAdmin   User     @relation("TimesheetOverrideAdmin", fields: [updatedByAdminId], references: [id], onDelete: Restrict)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([userId, day])
   @@index([day, userId])

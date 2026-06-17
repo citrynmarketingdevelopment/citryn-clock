@@ -2,6 +2,21 @@
 
 export const priorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 
+export function priorityMeta(priority) {
+  switch (priority) {
+    case "LOW":
+      return { key: "low", label: "Low" };
+    case "MEDIUM":
+      return { key: "medium", label: "Medium" };
+    case "HIGH":
+      return { key: "high", label: "High" };
+    case "URGENT":
+      return { key: "urgent", label: "Urgent" };
+    default:
+      return { key: "medium", label: "Medium" };
+  }
+}
+
 export function initials(name) {
   return (name || "?")
     .split(" ")
@@ -38,7 +53,7 @@ export function monthLabel(date) {
 
 export function dateKey(value) {
   const d = new Date(value);
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function isSameDay(a, b) {
