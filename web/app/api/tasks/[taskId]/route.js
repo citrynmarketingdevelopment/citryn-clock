@@ -20,10 +20,46 @@ const updateTaskSchema = z
     recurrenceDayOfMonth: z.coerce.number().int().min(1).max(31).nullable().optional(),
     laborMinutes: z.number().int().positive().optional(),
     columnId: z.string().trim().min(1).nullable().optional(),
+    projectId: z.string().trim().min(1).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
   });
+
+export async function DELETE(request, { params }) {
+  const routeParams = await params;
+  const taskId = routeParams?.taskId;
+  if (!taskId) {
+    return NextResponse.json({ error: "Task id is required." }, { status: 400 });
+  }
+
+  let user;
+  try {
+    user = await requireRequestUser(request);
+  } catch {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { id: true, projectId: true },
+    });
+    if (!task) {
+      return NextResponse.json({ error: "Task not found." }, { status: 404 });
+    }
+
+    const canAccess = await canUserAccessProject(user.id, task.projectId);
+    if (!canAccess) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
+    await prisma.task.delete({ where: { id: taskId } });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to delete task." }, { status: 500 });
+  }
+}
 
 export async function PATCH(request, { params }) {
   const routeParams = await params;
@@ -80,6 +116,14 @@ export async function PATCH(request, { params }) {
       data.recurrenceDayOfMonth = null;
     }
     if (payload.laborMinutes !== undefined) data.laborMinutes = payload.laborMinutes;
+    if (payload.projectId !== undefined && payload.projectId !== task.projectId) {
+      const canAccessTarget = await canUserAccessProject(user.id, payload.projectId);
+      if (!canAccessTarget) {
+        return NextResponse.json({ error: "You do not have access to the target project." }, { status: 403 });
+      }
+      data.projectId = payload.projectId;
+      data.columnId = null;
+    }
     if (payload.columnId !== undefined) {
       if (payload.columnId) {
         const column = await prisma.projectColumn.findFirst({

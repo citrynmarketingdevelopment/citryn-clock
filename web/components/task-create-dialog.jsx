@@ -224,7 +224,7 @@ export default function TaskCreateDialog({
             </div>
           </div>
           <button type="button" className="taskdialog-close" onClick={onClose} disabled={saving}>
-            Close
+            ✕
           </button>
         </header>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import WorkspaceShell from "@/components/workspace-shell";
 import PageIconPicker from "@/components/page-icon-picker";
@@ -29,6 +29,19 @@ export default function MyTasksPage() {
   const [error, setError] = useState(null);
   const [view, setView] = useState("calendar");
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
+  const [filterPriority, setFilterPriority] = useState("ALL");
+  const [filterProject, setFilterProject] = useState("ALL");
+  const [hideCompleted, setHideCompleted] = useState(false);
+  const [sortBy, setSortBy] = useState("smart");
+
+  const visibleTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      if (filterPriority !== "ALL" && task.priority !== filterPriority) return false;
+      if (filterProject !== "ALL" && task.project?.id !== filterProject) return false;
+      if (hideCompleted && task.completedAt) return false;
+      return true;
+    });
+  }, [tasks, filterPriority, filterProject, hideCompleted]);
 
   const loadData = useCallback(async () => {
     setLoadingBoard(true);
@@ -139,6 +152,36 @@ export default function MyTasksPage() {
           </div>
         </header>
 
+        <div className="aftoolbar">
+          <select className="aftoolbar-select" value={filterPriority} onChange={(event) => setFilterPriority(event.target.value)} aria-label="Filter by priority">
+            <option value="ALL">All priorities</option>
+            <option value="URGENT">Urgent</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+          <select className="aftoolbar-select" value={filterProject} onChange={(event) => setFilterProject(event.target.value)} aria-label="Filter by project">
+            <option value="ALL">All projects</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          {view === "list" ? (
+            <select className="aftoolbar-select" value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort by">
+              <option value="smart">Smart (by date)</option>
+              <option value="priority">Priority</option>
+              <option value="due">Due date</option>
+              <option value="title">Title</option>
+            </select>
+          ) : null}
+          <label className="aftoolbar-check">
+            <input type="checkbox" checked={hideCompleted} onChange={(event) => setHideCompleted(event.target.checked)} />
+            Hide completed
+          </label>
+        </div>
+
         {loadingBoard ? (
           <div className="aflist">
             {Array.from({ length: 5 }).map((_, index) => (
@@ -149,10 +192,10 @@ export default function MyTasksPage() {
             ))}
           </div>
         ) : view === "list" ? (
-          <TaskListView tasks={tasks} onOpenTask={setActiveTask} onToggleComplete={toggleComplete} showProject />
+          <TaskListView tasks={visibleTasks} onOpenTask={setActiveTask} onToggleComplete={toggleComplete} showProject sortBy={sortBy} />
         ) : (
           <MonthCalendar
-            tasks={tasks}
+            tasks={visibleTasks}
             month={calMonth}
             onChangeMonth={setCalMonth}
             onOpenTask={setActiveTask}

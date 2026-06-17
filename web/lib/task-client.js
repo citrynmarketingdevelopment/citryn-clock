@@ -184,6 +184,55 @@ export async function reorderProjects(orderedIds) {
   return true;
 }
 
+// --- Spaces (project groups) ---
+
+export async function getSpaces() {
+  const response = await fetch("/api/spaces", { cache: "no-store" });
+  const data = await parseJsonSafe(response);
+  if (!response.ok) throw new Error(data.error ?? "Unable to load spaces.");
+  return data.spaces ?? [];
+}
+
+export async function createSpace({ name, icon, color }) {
+  const response = await fetch("/api/spaces", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, icon, color }),
+  });
+  const data = await parseJsonSafe(response);
+  if (!response.ok || !data.space) throw new Error(data.error ?? "Unable to create space.");
+  return data.space;
+}
+
+export async function updateSpace(spaceId, patch) {
+  const response = await fetch(`/api/spaces/${spaceId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  const data = await parseJsonSafe(response);
+  if (!response.ok || !data.space) throw new Error(data.error ?? "Unable to update space.");
+  return data.space;
+}
+
+export async function deleteSpace(spaceId) {
+  const response = await fetch(`/api/spaces/${spaceId}`, { method: "DELETE" });
+  const data = await parseJsonSafe(response);
+  if (!response.ok) throw new Error(data.error ?? "Unable to delete space.");
+  return data;
+}
+
+export async function moveProjectToSpace(projectId, spaceId) {
+  const response = await fetch(`/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ spaceId }),
+  });
+  const data = await parseJsonSafe(response);
+  if (!response.ok || !data.project) throw new Error(data.error ?? "Unable to move project.");
+  return data.project;
+}
+
 export function renameProject(projectId, patch) {
   return fetch(`/api/projects/${projectId}`, {
     method: "PATCH",

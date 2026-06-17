@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   addImageAttachment,
@@ -26,6 +26,7 @@ export default function TaskDetailDialog({
   projectColumns = null,
   onClose,
   onUpdated,
+  onDeleted,
 }) {
   const [current, setCurrent] = useState(task);
   const [title, setTitle] = useState(task?.title ?? "");
@@ -36,6 +37,12 @@ export default function TaskDetailDialog({
   const [imageForm, setImageForm] = useState({ file: null, label: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
+  const [moveProjects, setMoveProjects] = useState([]);
+  const [moveLoading, setMoveLoading] = useState(false);
+  const menuRef = useRef(null);
+  const attachInputRef = useRef(null);
 
   // Reset local state when a different task is opened.
   useEffect(() => {
@@ -60,6 +67,108 @@ export default function TaskDetailDialog({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [onClose, saving]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(event) {
+      if (!menuRef.current?.contains(event.target)) setMenuOpen(false);
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [menuOpen]);
+
+  async function handleDuplicate() {
+    setMenuOpen(false);
+    const pid = current?.projectId ?? current?.project?.id;
+    if (!pid) return;
+    await runEdit(async () => {
+      const response = await fetch(`/api/projects/${pid}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `${current.title} (copy)`,
+          description: current.description ?? "",
+          laborMinutes: current.laborMinutes ?? 60,
+          priority: current.priority,
+          dueDate: current.dueDate ?? null,
+          recurrenceFrequency: current.recurrenceFrequency ?? "NONE",
+          recurrenceInterval: current.recurrenceInterval ?? 1,
+          recurrenceDayOfWeek: current.recurrenceDayOfWeek ?? null,
+          recurrenceDayOfMonth: current.recurrenceDayOfMonth ?? null,
+          columnId: current.columnId ?? null,
+          assigneeUserIds: (current.assignees ?? []).map((a) => a.id),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Unable to duplicate task.");
+      onUpdated?.(data.task);
+    });
+  }
+
+  function handleCopyLink() {
+    setMenuOpen(false);
+    const pid = current?.projectId ?? current?.project?.id;
+    const url = pid
+      ? `${window.location.origin}/projects/${pid}`
+      : window.location.href;
+    navigator.clipboard.writeText(url).catch(() => {});
+  }
+
+  async function handleDelete() {
+    setMenuOpen(false);
+    if (!window.confirm("Delete this task? This cannot be undone.")) return;
+    await runEdit(async () => {
+      const response = await fetch(`/api/tasks/${current.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error ?? "Unable to delete task.");
+      }
+      onDeleted?.(current.id);
+      onClose();
+    });
+  }
+
+  function handleAttachFile(event) {
+    setMenuOpen(false);
+    const file = event.target.files?.[0];
+    if (!file) return;
+    runEdit(async () => {
+      const updated = await addImageAttachment(current.id, { file, label: file.name });
+      applyTask(updated);
+    });
+    event.target.value = "";
+  }
+
+  async function openMoveDialog() {
+    setMenuOpen(false);
+    setMoveLoading(true);
+    setShowMoveDialog(true);
+    try {
+      const response = await fetch("/api/projects", { cache: "no-store" });
+      const data = await response.json();
+      setMoveProjects(data.projects ?? []);
+    } catch {
+      setMoveProjects([]);
+    } finally {
+      setMoveLoading(false);
+    }
+  }
+
+  async function handleMoveToProject(targetProjectId) {
+    setShowMoveDialog(false);
+    if (targetProjectId === (current?.projectId ?? current?.project?.id)) return;
+    await runEdit(async () => {
+      const response = await fetch(`/api/tasks/${current.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: targetProjectId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Unable to move task.");
+      onDeleted?.(current.id);
+      onClose();
+    });
+  }
 
   const projectId = current?.projectId ?? current?.project?.id ?? null;
 
@@ -195,10 +304,78 @@ export default function TaskDetailDialog({
               )}
             </div>
           </div>
-          <button type="button" className="taskdialog-close" onClick={onClose} disabled={saving}>
-            Close
-          </button>
+          <div className="taskdialog-header-controls">
+            <div className="taskdialog-menu-wrap" ref={menuRef}>
+              <button
+                type="button"
+                className="taskdialog-menu-btn"
+                onClick={() => setMenuOpen((v) => !v)}
+                aria-label="Task options"
+                aria-expanded={menuOpen}
+                disabled={saving}
+              >
+                ···
+              </button>
+              {menuOpen ? (
+                <div className="taskdialog-menu-popup" role="menu">
+                  <button type="button" className="taskdialog-menu-item" role="menuitem" onClick={handleDuplicate}>
+                    Duplicate task
+                  </button>
+                  <button type="button" className="taskdialog-menu-item" role="menuitem" onClick={handleCopyLink}>
+                    Copy task link
+                  </button>
+                  <hr className="taskdialog-menu-divider" />
+                  <label className="taskdialog-menu-item" role="menuitem">
+                    Upload attachment
+                    <input ref={attachInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAttachFile} />
+                  </label>
+                  <button type="button" className="taskdialog-menu-item" role="menuitem" onClick={openMoveDialog}>
+                    Move to project
+                  </button>
+                  <hr className="taskdialog-menu-divider" />
+                  <button type="button" className="taskdialog-menu-item danger" role="menuitem" onClick={handleDelete}>
+                    Delete task
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <button type="button" className="taskdialog-close" onClick={onClose} disabled={saving}>
+              ✕
+            </button>
+          </div>
         </header>
+
+        {showMoveDialog ? (
+          <div className="taskdialog-move-overlay" onClick={() => setShowMoveDialog(false)}>
+            <div className="taskdialog-move-inner" onClick={(e) => e.stopPropagation()}>
+              <h3>Move to project</h3>
+              {moveLoading ? (
+                <p className="muted" style={{ fontSize: "0.85rem" }}>Loading projects...</p>
+              ) : (
+                <div className="taskdialog-move-list">
+                  {moveProjects
+                    .filter((p) => p.id !== projectId)
+                    .map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="taskdialog-move-option"
+                        onClick={() => handleMoveToProject(p.id)}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  {moveProjects.filter((p) => p.id !== projectId).length === 0 ? (
+                    <p className="muted" style={{ fontSize: "0.85rem" }}>No other projects available.</p>
+                  ) : null}
+                </div>
+              )}
+              <button type="button" className="taskdialog-move-cancel" onClick={() => setShowMoveDialog(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="taskdialog-body">
           {canEdit ? (

@@ -3,10 +3,12 @@ import { z } from "zod";
 import { NextResponse } from "next/server";
 import { requireRequestUser } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
+import { ensureDefaultSpace } from "@/lib/spaces";
 
 const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(4000).optional().nullable(),
+  spaceId: z.string().trim().min(1).optional().nullable(),
 });
 
 const defaultColumns = ["To Do", "In Progress", "Review", "Done"];
@@ -22,6 +24,7 @@ function toProjectSummary(project) {
     name: project.name,
     description: project.description,
     ownerId: project.ownerId,
+    spaceId: project.spaceId ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     taskCount,
@@ -77,6 +80,17 @@ export async function POST(request) {
     const payload = createProjectSchema.parse(await request.json());
     const description = payload.description ? payload.description.trim() : null;
 
+    // Resolve the target space: an owned space if one was passed, else default.
+    const defaultSpace = await ensureDefaultSpace(user.id);
+    let spaceId = defaultSpace.id;
+    if (payload.spaceId) {
+      const target = await prisma.space.findFirst({
+        where: { id: payload.spaceId, ownerId: user.id },
+        select: { id: true },
+      });
+      if (target) spaceId = target.id;
+    }
+
     const lastOwned = await prisma.project.findFirst({
       where: { ownerId: user.id },
       orderBy: { order: "desc" },
@@ -90,6 +104,7 @@ export async function POST(request) {
           name: payload.name,
           description,
           ownerId: user.id,
+          spaceId,
           order: nextOrder,
           members: {
             create: {
@@ -118,6 +133,7 @@ export async function POST(request) {
           name: project.name,
           description: project.description,
           ownerId: project.ownerId,
+          spaceId: project.spaceId ?? null,
           createdAt: project.createdAt,
           updatedAt: project.updatedAt,
           columns: project.columns,

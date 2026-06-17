@@ -15,6 +15,7 @@ export default function ProjectsPage() {
   const [error, setError] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState("updated");
 
   const loadData = useCallback(async (showSkeleton = true) => {
     if (showSkeleton) setLoadingProjects(true);
@@ -52,11 +53,20 @@ export default function ProjectsPage() {
 
   const filteredProjects = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return projects;
-    return projects.filter((project) =>
-      [project.name, project.description ?? ""].join(" ").toLowerCase().includes(needle),
-    );
-  }, [projects, query]);
+    const matched = needle
+      ? projects.filter((project) =>
+          [project.name, project.description ?? ""].join(" ").toLowerCase().includes(needle),
+        )
+      : [...projects];
+
+    const sorted = matched.sort((a, b) => {
+      if (sortBy === "name") return (a.name || "").localeCompare(b.name || "");
+      if (sortBy === "tasks") return (b.taskCount ?? 0) - (a.taskCount ?? 0);
+      if (sortBy === "dueSoon") return (b.dueSoonCount ?? 0) - (a.dueSoonCount ?? 0);
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+    return sorted;
+  }, [projects, query, sortBy]);
 
   return (
     <WorkspaceShell user={user} onLogout={logout}>
@@ -89,6 +99,12 @@ export default function ProjectsPage() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
+          <select className="aftoolbar-select" value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort projects">
+            <option value="updated">Recently updated</option>
+            <option value="name">Name A–Z</option>
+            <option value="tasks">Most tasks</option>
+            <option value="dueSoon">Most due soon</option>
+          </select>
         </div>
 
         {loadingProjects ? (

@@ -59,7 +59,7 @@ export default function LoginPage() {
       <section className="card card-strong login-card">
         <div className="login-card-edge" aria-hidden="true" />
         <div className="login-card-head">
-          <span className="login-mark">C</span>
+          <img src="/Logo Trademark.svg" alt="Citryn" className="login-mark" />
           <div className="login-card-copy">
             <h1 className="headline">Citryn</h1>
             <p className="muted">Sign in to your workspace</p>
