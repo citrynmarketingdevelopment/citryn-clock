@@ -9,8 +9,9 @@ const updateProjectSchema = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
     description: z.string().trim().max(4000).nullable().optional(),
+    spaceId: z.string().trim().min(1).optional(),
   })
-  .refine((value) => value.name !== undefined || value.description !== undefined, {
+  .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
   });
 
@@ -188,11 +189,27 @@ export async function PATCH(request, { params }) {
     if (payload.description !== undefined) {
       data.description = payload.description ? payload.description.trim() : null;
     }
+    if (payload.spaceId !== undefined) {
+      // Spaces are per-owner: only the project owner can move it, and only into
+      // one of their own spaces.
+      const existing = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
+      if (existing?.ownerId !== user.id) {
+        return NextResponse.json({ error: "Only the project owner can move it between spaces." }, { status: 403 });
+      }
+      const space = await prisma.space.findFirst({
+        where: { id: payload.spaceId, ownerId: user.id },
+        select: { id: true },
+      });
+      if (!space) {
+        return NextResponse.json({ error: "Space not found." }, { status: 400 });
+      }
+      data.spaceId = space.id;
+    }
 
     const project = await prisma.project.update({
       where: { id: projectId },
       data,
-      select: { id: true, name: true, description: true, updatedAt: true },
+      select: { id: true, name: true, description: true, spaceId: true, updatedAt: true },
     });
 
     return NextResponse.json({ project });

@@ -25,6 +25,31 @@ import { TaskCardBody } from "@/components/task-card";
 import { addColumn, deleteColumn, renameColumn, reorderColumns, updateTask } from "@/lib/task-client";
 import { dateKey, initials, isTaskCompleted, startOfMonth } from "@/lib/task-format";
 
+function favoritesKey(userId) {
+  return userId ? `citryn:project-favorites:${userId}` : null;
+}
+
+function readFavorites(userId) {
+  const key = favoritesKey(userId);
+  if (!key) return [];
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFavorites(userId, ids) {
+  const key = favoritesKey(userId);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(ids));
+    window.dispatchEvent(new CustomEvent("citryn-favorites-changed"));
+  } catch {}
+}
+
 const boardViews = [
   { key: "board", label: "Board" },
   { key: "list", label: "List" },
@@ -167,6 +192,7 @@ export default function ProjectBoardPage() {
   const [user, setUser] = useState(null);
   const [project, setProject] = useState(null);
   const [error, setError] = useState(null);
+  const [favorites, setFavorites] = useState([]);
   const [loadingBoard, setLoadingBoard] = useState(true);
   const [activeId, setActiveId] = useState(null);
   const [view, setView] = useState("board");
@@ -184,6 +210,22 @@ export default function ProjectBoardPage() {
   const [composerDueDate, setComposerDueDate] = useState("");
   const [showMembers, setShowMembers] = useState(false);
   const [activeTask, setActiveTask] = useState(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    setFavorites(readFavorites(user.id));
+  }, [user?.id]);
+
+  function toggleFavorite() {
+    if (!user?.id) return;
+    setFavorites((current) => {
+      const next = current.includes(projectId)
+        ? current.filter((id) => id !== projectId)
+        : [...current, projectId];
+      writeFavorites(user.id, next);
+      return next;
+    });
+  }
 
   const loadData = useCallback(async (showSkeleton = true) => {
     if (showSkeleton) {
@@ -465,7 +507,18 @@ export default function ProjectBoardPage() {
             />
             <div>
               <div className="appflowy-breadcrumb">General › Project</div>
-              <h1>{project?.name || "Project board"}</h1>
+              <div className="projectboard-title-row">
+                <h1>{project?.name || "Project board"}</h1>
+                <button
+                  type="button"
+                  className={`proj-fav-star${favorites.includes(projectId) ? " starred" : ""}`}
+                  onClick={toggleFavorite}
+                  aria-label={favorites.includes(projectId) ? "Remove from favorites" : "Add to favorites"}
+                  title={favorites.includes(projectId) ? "Remove from favorites" : "Add to favorites"}
+                >
+                  {favorites.includes(projectId) ? "★" : "☆"}
+                </button>
+              </div>
               <p>{project?.description || "Kanban workflow for project execution."}</p>
             </div>
           </div>

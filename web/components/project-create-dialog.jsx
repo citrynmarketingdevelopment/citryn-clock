@@ -5,7 +5,7 @@ import { initials } from "@/lib/task-format";
 
 // AppFlowy-style centered "create project" dialog. Shared by the projects
 // landing and the sidebar "+ New project" action. Calls onCreated(project).
-export default function ProjectCreateDialog({ onClose, onCreated }) {
+export default function ProjectCreateDialog({ onClose, onCreated, spaceId = null }) {
   const [form, setForm] = useState({ name: "", description: "" });
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
@@ -31,7 +31,7 @@ export default function ProjectCreateDialog({ onClose, onCreated }) {
       const response = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: form.name, description: form.description || null }),
+        body: JSON.stringify({ name: form.name, description: form.description || null, spaceId }),
       });
       const data = await response.json();
       if (!response.ok || !data.project) {

@@ -3,10 +3,33 @@
 import { useMemo } from "react";
 import { formatDueDate, groupTasksByDue, isTaskCompleted } from "@/lib/task-format";
 
+const priorityRank = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+
+function sortTasks(list, sortBy) {
+  if (sortBy === "priority") {
+    return [...list].sort((a, b) => (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9));
+  }
+  if (sortBy === "title") {
+    return [...list].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  }
+  if (sortBy === "due") {
+    return [...list].sort((a, b) => {
+      const av = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+      const bv = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+      return av - bv;
+    });
+  }
+  return list;
+}
+
 // AppFlowy-style todo/list view: tasks grouped into date buckets, each row a
 // checkbox + title + priority dot + due chip. Clicking a row opens the dialog.
-export default function TaskListView({ tasks, onOpenTask, onToggleComplete, showProject = false }) {
-  const groups = useMemo(() => groupTasksByDue(tasks ?? []), [tasks]);
+export default function TaskListView({ tasks, onOpenTask, onToggleComplete, showProject = false, sortBy = "smart" }) {
+  const groups = useMemo(() => {
+    const grouped = groupTasksByDue(tasks ?? []);
+    if (sortBy === "smart") return grouped;
+    return grouped.map((group) => ({ ...group, tasks: sortTasks(group.tasks, sortBy) }));
+  }, [tasks, sortBy]);
 
   if (groups.length === 0) {
     return <p className="aflist-empty">No tasks yet.</p>;

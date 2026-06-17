@@ -6,7 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { PageIconBadge } from "@/components/page-icon-picker";
 import ProjectCreateDialog from "@/components/project-create-dialog";
 import SettingsDialog from "@/components/settings-dialog";
-import { reorderProjects } from "@/lib/task-client";
+import SidebarSpaces from "@/components/sidebar-spaces";
+import GlobalSearch from "@/components/global-search";
 import { initials } from "@/lib/task-format";
 import { applyAppearanceTheme, readAppearanceTheme, readWorkspaceName } from "@/lib/workspace-preferences";
 
@@ -19,6 +20,31 @@ function isActive(pathname, href) {
     return true;
   }
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function favoritesKey(userId) {
+  return userId ? `citryn:project-favorites:${userId}` : null;
+}
+
+function readFavorites(userId) {
+  const key = favoritesKey(userId);
+  if (!key) return [];
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFavorites(userId, ids) {
+  const key = favoritesKey(userId);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(ids));
+    window.dispatchEvent(new CustomEvent("citryn-favorites-changed"));
+  } catch {}
 }
 
 export default function WorkspaceShell({
@@ -34,12 +60,43 @@ export default function WorkspaceShell({
   const role = currentUser?.role;
 
   const [projects, setProjects] = useState([]);
-  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [favorites, setFavorites] = useState([]);
+  const [favoritesOpen, setFavoritesOpen] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [dragIndex, setDragIndex] = useState(null);
+  const [createSpaceId, setCreateSpaceId] = useState(null);
+  const [showSearch, setShowSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(initialSettingsOpen);
   const [settingsPage, setSettingsPage] = useState(initialSettingsPage);
   const [workspaceName, setWorkspaceName] = useState("My Workspace");
+
+  useEffect(() => {
+    const userId = currentUser?.id;
+    if (!userId) return;
+    setFavorites(readFavorites(userId));
+
+    function onChanged() {
+      setFavorites(readFavorites(userId));
+    }
+    window.addEventListener("citryn-favorites-changed", onChanged);
+    window.addEventListener("storage", onChanged);
+    return () => {
+      window.removeEventListener("citryn-favorites-changed", onChanged);
+      window.removeEventListener("storage", onChanged);
+    };
+  }, [currentUser?.id]);
+
+  function toggleFavorite(event, projectId) {
+    event.stopPropagation();
+    const userId = currentUser?.id;
+    if (!userId) return;
+    setFavorites((current) => {
+      const next = current.includes(projectId)
+        ? current.filter((id) => id !== projectId)
+        : [...current, projectId];
+      writeFavorites(userId, next);
+      return next;
+    });
+  }
 
   useEffect(() => {
     setShowSettings(initialSettingsOpen);
@@ -79,18 +136,7 @@ export default function WorkspaceShell({
     };
   }, []);
 
-  function onDropProject(targetIndex) {
-    if (dragIndex === null || dragIndex === targetIndex) {
-      setDragIndex(null);
-      return;
-    }
-    const reordered = [...projects];
-    const [moved] = reordered.splice(dragIndex, 1);
-    reordered.splice(targetIndex, 0, moved);
-    setProjects(reordered);
-    setDragIndex(null);
-    reorderProjects(reordered.map((project) => project.id)).catch(() => loadProjects());
-  }
+  const favoritedProjects = projects.filter((project) => favorites.includes(project.id));
 
   // Secondary nav (Projects is rendered as its own expandable group below).
   const navItems = [{ href: "/my-tasks", label: "My Tasks", icon: "✅", iconKey: "citryn:page-icon:my-tasks" }];
@@ -107,13 +153,8 @@ export default function WorkspaceShell({
     <div className="ws-shell">
       <aside className="ws-sidebar">
         <div className="ws-brand">
-          <div className="ws-appflowy-mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
-          <strong>citryn</strong>
+          <img src="/Logo Trademark.svg" alt="Citryn" className="ws-brand-logo" />
+          <strong>Citryn</strong>
         </div>
 
         <div className="ws-workspace-row">
@@ -134,58 +175,74 @@ export default function WorkspaceShell({
         </div>
 
         <nav className="ws-nav">
-          <div className="ws-nav-group">
-            <div className="ws-nav-group-bar">
-              <button
-                type="button"
-                className="ws-nav-group-head"
-                onClick={() => setProjectsOpen((value) => !value)}
-                aria-expanded={projectsOpen}
-              >
-                <span className={classNames("ws-nav-group-caret", projectsOpen && "open")}>›</span>
-                <span className="ws-nav-icon home">⌂</span>
-                Projects
-              </button>
-              <button
-                type="button"
-                className="ws-nav-group-add"
-                onClick={() => setShowCreate(true)}
-                aria-label="New project"
-                title="New project"
-              >
-                +
-              </button>
-            </div>
+          <button type="button" className="ws-nav-item ws-search-trigger" onClick={() => setShowSearch(true)}>
+            <span className="ws-nav-icon search">⌕</span>
+            <span>Search</span>
+          </button>
 
-            {projectsOpen ? (
-              <div className="ws-proj-list">
-                {projects.length === 0 ? (
-                  <p className="ws-proj-empty">No projects yet.</p>
-                ) : (
-                  projects.map((project, index) => (
-                    <button
-                      key={project.id}
-                      type="button"
-                      draggable
-                      className={classNames(
-                        "ws-proj-item",
-                        pathname === `/projects/${project.id}` && "active",
-                        dragIndex === index && "dragging",
-                      )}
-                      onClick={() => router.push(`/projects/${project.id}`)}
-                      onDragStart={() => setDragIndex(index)}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => onDropProject(index)}
-                      onDragEnd={() => setDragIndex(null)}
-                    >
-                      <PageIconBadge storageKey={`citryn:page-icon:project:${project.id}`} fallback={initials(project.name)} />
-                      <span>{project.name}</span>
-                    </button>
-                  ))
-                )}
+          <Link
+            href="/projects"
+            className={classNames("ws-nav-item", pathname === "/projects" && "active")}
+          >
+            <span className="ws-nav-icon dashboard">⊞</span>
+            <span>Dashboard</span>
+          </Link>
+
+          <SidebarSpaces
+            projects={projects}
+            currentUserId={currentUser?.id}
+            pathname={pathname}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            onCreateProject={(spaceId) => {
+              setCreateSpaceId(spaceId ?? null);
+              setShowCreate(true);
+            }}
+            onProjectsReload={loadProjects}
+          />
+
+          {favoritedProjects.length > 0 ? (
+            <div className="ws-nav-group">
+              <div className="ws-nav-group-bar">
+                <button
+                  type="button"
+                  className="ws-nav-group-head"
+                  onClick={() => setFavoritesOpen((value) => !value)}
+                  aria-expanded={favoritesOpen}
+                >
+                  <span className={classNames("ws-nav-group-caret", favoritesOpen && "open")}>›</span>
+                  <span className="ws-nav-icon fav">★</span>
+                  Favorites
+                </button>
               </div>
-            ) : null}
-          </div>
+
+              {favoritesOpen ? (
+                <div className="ws-proj-list">
+                  {favoritedProjects.map((project) => (
+                    <div key={project.id} className="ws-proj-item-row">
+                      <button
+                        type="button"
+                        className={classNames("ws-proj-item", pathname === `/projects/${project.id}` && "active")}
+                        onClick={() => router.push(`/projects/${project.id}`)}
+                      >
+                        <PageIconBadge storageKey={`citryn:page-icon:project:${project.id}`} fallback={initials(project.name)} />
+                        <span className="ws-proj-item-name">{project.name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="ws-proj-star starred"
+                        onClick={(event) => toggleFavorite(event, project.id)}
+                        aria-label="Remove from favorites"
+                        title="Remove from favorites"
+                      >
+                        ★
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {navItems.map((item) => (
             <Link
@@ -232,9 +289,14 @@ export default function WorkspaceShell({
 
       {showCreate ? (
         <ProjectCreateDialog
-          onClose={() => setShowCreate(false)}
+          spaceId={createSpaceId}
+          onClose={() => {
+            setShowCreate(false);
+            setCreateSpaceId(null);
+          }}
           onCreated={(project) => {
             setShowCreate(false);
+            setCreateSpaceId(null);
             setProjects((current) => [{ ...project, taskCount: 0, dueSoonCount: 0 }, ...current]);
             router.push(`/projects/${project.id}`);
           }}
@@ -250,6 +312,8 @@ export default function WorkspaceShell({
           onUserUpdated={setCurrentUser}
         />
       ) : null}
+
+      {showSearch ? <GlobalSearch onClose={() => setShowSearch(false)} /> : null}
     </div>
   );
 }
