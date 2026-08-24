@@ -68,8 +68,11 @@ model User {
   dayOverrides         TimesheetDayOverride[] @relation("TimesheetOverrideUser")
   dayOverridesSet      TimesheetDayOverride[] @relation("TimesheetOverrideAdmin")
   spaces               Space[]                @relation("SpaceOwner")
+  archivedAt           DateTime?
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
+
+  @@index([archivedAt, role])
 }
 
 model Space {

@@ -61,6 +61,7 @@ export default function SettingsDialog({
   const [activePage, setActivePage] = useState(initialPage);
   const [user, setUser] = useState(currentUser);
   const [users, setUsers] = useState([]);
+  const [memberStatusFilter, setMemberStatusFilter] = useState("active");
   const [loading, setLoading] = useState(true);
   const [savingAccount, setSavingAccount] = useState(false);
   const [savingWorkspace, setSavingWorkspace] = useState(false);
@@ -83,6 +84,10 @@ export default function SettingsDialog({
     () => settingsPages.filter((page) => !page.adminOnly || user?.role === "ADMIN"),
     [user?.role],
   );
+
+  const activeUsers = useMemo(() => users.filter((item) => !item.archivedAt), [users]);
+  const archivedUsers = useMemo(() => users.filter((item) => Boolean(item.archivedAt)), [users]);
+  const visibleUsers = memberStatusFilter === "archived" ? archivedUsers : activeUsers;
 
   useEffect(() => {
     setWorkspaceName(readWorkspaceName());
@@ -142,7 +147,7 @@ export default function SettingsDialog({
     async function loadUsers() {
       setLoadingUsers(true);
       try {
-        const response = await fetch("/api/users", { cache: "no-store" });
+        const response = await fetch("/api/users?status=all", { cache: "no-store" });
         const data = await parseJsonSafe(response);
         if (!cancelled) {
           if (!response.ok) setError(data.error ?? "Unable to load users.");
@@ -226,6 +231,7 @@ export default function SettingsDialog({
         return;
       }
       setUsers((current) => [...current, data.user]);
+      setMemberStatusFilter("active");
       setNewUserForm({ name: "", email: "", password: "", role: "EMPLOYEE" });
       setSuccess("User created.");
     } catch {
@@ -259,7 +265,37 @@ export default function SettingsDialog({
     }
   }
 
+  async function setUserArchived(userId, archived) {
+    setBusyUserId(userId);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, archived }),
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok || !data.user) {
+        setError(data.error ?? `Unable to ${archived ? "archive" : "restore"} user.`);
+        return;
+      }
+      setUsers((current) => current.map((item) => (item.id === userId ? data.user : item)));
+      setSuccess(archived ? "User archived. Their records are still available." : "User restored.");
+    } catch {
+      setError(`Unable to ${archived ? "archive" : "restore"} user.`);
+    } finally {
+      setBusyUserId(null);
+    }
+  }
+
   async function removeUser(userId) {
+    const targetUser = users.find((item) => item.id === userId);
+    const confirmed = window.confirm(
+      `Permanently remove ${targetUser?.name ?? "this user"}? This deletes their account and cannot be undone.`,
+    );
+    if (!confirmed) return;
+
     setBusyUserId(userId);
     setError(null);
     setSuccess(null);
@@ -445,23 +481,58 @@ export default function SettingsDialog({
                   </form>
                 </SettingsSection>
 
-                <SettingsSection title="Members" description="Manage user roles and remove access.">
+                <SettingsSection
+                  title="Members"
+                  description="Archive users to remove access while preserving their records."
+                  action={
+                    <div className="status-segmented afsettings-status-filter" role="group" aria-label="Member status">
+                      <button
+                        type="button"
+                        className={memberStatusFilter === "active" ? "active" : ""}
+                        aria-pressed={memberStatusFilter === "active"}
+                        onClick={() => setMemberStatusFilter("active")}
+                      >
+                        Active <span>{activeUsers.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={memberStatusFilter === "archived" ? "active" : ""}
+                        aria-pressed={memberStatusFilter === "archived"}
+                        onClick={() => setMemberStatusFilter("archived")}
+                      >
+                        Archived <span>{archivedUsers.length}</span>
+                      </button>
+                    </div>
+                  }
+                >
                   {loadingUsers ? (
                     <p className="muted">Loading users...</p>
-                  ) : users.length === 0 ? (
-                    <p className="muted">No users found.</p>
+                  ) : visibleUsers.length === 0 ? (
+                    <p className="muted">
+                      {memberStatusFilter === "archived" ? "No archived users." : "No active users."}
+                    </p>
                   ) : (
                     <div className="afsettings-members-list">
-                      {users.map((item) => (
-                        <article key={item.id} className="afsettings-member-row">
+                      {visibleUsers.map((item) => (
+                        <article
+                          key={item.id}
+                          className={classNames("afsettings-member-row", item.archivedAt && "archived")}
+                        >
                           <span className="afsettings-member-avatar">{initials(item.name)}</span>
                           <div className="afsettings-member-main">
-                            <strong>{item.name}</strong>
+                            <div className="afsettings-member-name">
+                              <strong>{item.name}</strong>
+                              {item.archivedAt ? <span className="afsettings-archived-label">Archived</span> : null}
+                            </div>
                             <span>{item.email}</span>
+                            {item.archivedAt ? (
+                              <small>Archived {new Date(item.archivedAt).toLocaleDateString()}</small>
+                            ) : null}
                           </div>
                           <select
                             value={item.role}
-                            disabled={busyUserId === item.id || item.id === user.id}
+                            disabled={busyUserId === item.id || item.id === user.id || Boolean(item.archivedAt)}
+                            aria-label={`Role for ${item.name}`}
                             onChange={(event) => changeUserRole(item.id, event.target.value)}
                           >
                             {roleOptions.map((role) => (
@@ -470,14 +541,24 @@ export default function SettingsDialog({
                               </option>
                             ))}
                           </select>
-                          <button
-                            type="button"
-                            className="secondary danger"
-                            disabled={busyUserId === item.id || item.id === user.id}
-                            onClick={() => removeUser(item.id)}
-                          >
-                            {busyUserId === item.id ? "Working..." : "Remove"}
-                          </button>
+                          <div className="afsettings-member-actions">
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={busyUserId === item.id || item.id === user.id}
+                              onClick={() => setUserArchived(item.id, !item.archivedAt)}
+                            >
+                              {busyUserId === item.id ? "Working..." : item.archivedAt ? "Restore" : "Archive"}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary danger"
+                              disabled={busyUserId === item.id || item.id === user.id}
+                              onClick={() => removeUser(item.id)}
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </article>
                       ))}
                     </div>

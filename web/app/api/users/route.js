@@ -18,12 +18,24 @@ export async function GET(request) {
   }
 
   try {
+    const status = request.nextUrl.searchParams.get("status") ?? "active";
+    if (!new Set(["active", "archived", "all"]).has(status)) {
+      return NextResponse.json({ error: "status must be active, archived, or all." }, { status: 400 });
+    }
+
     const users = await prisma.user.findMany({
+      where:
+        status === "all"
+          ? undefined
+          : status === "archived"
+            ? { archivedAt: { not: null } }
+            : { archivedAt: null },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        archivedAt: true,
         createdAt: true,
       },
       orderBy: [{ createdAt: "asc" }],
@@ -68,7 +80,7 @@ export async function DELETE(request) {
 
     const target = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true },
+      select: { id: true, role: true, archivedAt: true },
     });
 
     if (!target) {
@@ -77,9 +89,9 @@ export async function DELETE(request) {
 
     if (target.role === Role.ADMIN) {
       const adminCount = await prisma.user.count({
-        where: { role: Role.ADMIN },
+        where: { role: Role.ADMIN, archivedAt: null },
       });
-      if (adminCount <= 1) {
+      if (!target.archivedAt && adminCount <= 1) {
         return NextResponse.json({ error: "At least one admin account must remain." }, { status: 400 });
       }
     }
@@ -136,26 +148,43 @@ export async function PATCH(request) {
     const payload = await request.json().catch(() => null);
     const userId = String(payload?.userId || "").trim();
     const role = String(payload?.role || "").trim();
+    const hasRoleUpdate = Object.values(Role).includes(role);
+    const hasArchiveUpdate = typeof payload?.archived === "boolean";
 
-    if (!userId || !Object.values(Role).includes(role)) {
-      return NextResponse.json({ error: "Valid userId and role are required." }, { status: 400 });
+    if (!userId || Number(hasRoleUpdate) + Number(hasArchiveUpdate) !== 1) {
+      return NextResponse.json(
+        { error: "Provide a userId and exactly one valid role or archived value." },
+        { status: 400 },
+      );
     }
 
-    if (userId === adminUser.id && role !== Role.ADMIN) {
+    if (userId === adminUser.id && hasArchiveUpdate && payload.archived) {
+      return NextResponse.json({ error: "You cannot archive your own account." }, { status: 400 });
+    }
+
+    if (userId === adminUser.id && hasRoleUpdate && role !== Role.ADMIN) {
       return NextResponse.json({ error: "You cannot remove your own admin access." }, { status: 400 });
     }
 
     const target = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true },
+      select: { id: true, role: true, archivedAt: true },
     });
 
     if (!target) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
 
-    if (target.role === Role.ADMIN && role !== Role.ADMIN) {
-      const adminCount = await prisma.user.count({ where: { role: Role.ADMIN } });
+    if (hasRoleUpdate && target.archivedAt) {
+      return NextResponse.json({ error: "Restore this user before changing their role." }, { status: 400 });
+    }
+
+    const removesActiveAdmin =
+      target.role === Role.ADMIN && !target.archivedAt &&
+      ((hasRoleUpdate && role !== Role.ADMIN) || (hasArchiveUpdate && payload.archived));
+
+    if (removesActiveAdmin) {
+      const adminCount = await prisma.user.count({ where: { role: Role.ADMIN, archivedAt: null } });
       if (adminCount <= 1) {
         return NextResponse.json({ error: "At least one admin account must remain." }, { status: 400 });
       }
@@ -163,12 +192,13 @@ export async function PATCH(request) {
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
-      data: { role },
+      data: hasArchiveUpdate ? { archivedAt: payload.archived ? new Date() : null } : { role },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        archivedAt: true,
         createdAt: true,
       },
     });

@@ -1783,6 +1783,24 @@ th {
   background: var(--card-solid);
 }
 
+.timesheet-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.timesheet-section-head h2 {
+  margin: 0;
+}
+
+.employee-summary-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .employee-dropdown + .employee-dropdown {
   margin-top: 10px;
 }
@@ -1829,6 +1847,33 @@ th {
 
 .timesheet-edit-cell button {
   padding: 8px 10px;
+}
+
+@media (max-width: 640px) {
+  .timesheet-section-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .timesheet-section-head .status-segmented {
+    align-self: stretch;
+  }
+
+  .timesheet-section-head .status-segmented button {
+    flex: 1 1 0;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .employee-summary {
+    align-items: flex-start;
+  }
+
+  .employee-summary-person {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
 }
 
 .track-shell {
@@ -5539,6 +5584,91 @@ input.taskdialog-prop-value {
   border-color: rgba(255, 92, 122, 0.35);
 }
 
+.afsettings-member-row.archived {
+  background: rgba(255, 255, 255, 0.012);
+  border-color: #333b4a;
+}
+
+.afsettings-member-row.archived .afsettings-member-avatar {
+  background: #343c4b;
+  color: #c5cede;
+}
+
+.afsettings-member-name,
+.afsettings-member-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.afsettings-member-actions button {
+  min-height: 44px;
+}
+
+.afsettings-member-main small {
+  color: #7f8a9f;
+}
+
+.afsettings-archived-label,
+.employee-status-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border: 1px solid #495367;
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: #aeb8ca;
+  background: #2a313e;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.status-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-solid);
+}
+
+.status-segmented button {
+  min-height: 44px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-500);
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.status-segmented button:focus-visible,
+.afsettings-member-actions button:focus-visible {
+  outline: 3px solid rgba(155, 140, 255, 0.48);
+  outline-offset: 2px;
+}
+
+.status-segmented button:hover {
+  color: var(--ink-900);
+  background: var(--surface-raised);
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+.status-segmented button.active {
+  color: #ffffff;
+  background: var(--primary-strong);
+}
+
+.status-segmented button span {
+  margin-left: 4px;
+  opacity: 0.72;
+  font-size: 0.78rem;
+}
+
 .afsettings-theme-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5648,9 +5778,17 @@ input.taskdialog-prop-value {
   }
 
   .afsettings-member-row select,
-  .afsettings-member-row .danger {
+  .afsettings-member-actions {
     grid-column: 2;
     width: 100%;
+  }
+
+  .afsettings-member-actions button {
+    flex: 1 1 0;
+  }
+
+  .afsettings-section-head {
+    flex-wrap: wrap;
   }
 }
 

@@ -19,7 +19,7 @@ export async function getRequestUser(request) {
     where: { id: session.userId },
   });
 
-  return user;
+  return user?.archivedAt ? null : user;
 }
 
 export async function requireRequestUser(request) {

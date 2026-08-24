@@ -56,7 +56,7 @@ export async function GET(request, { params }) {
   }
 
   const members = await prisma.projectMember.findMany({
-    where: { projectId },
+    where: { projectId, user: { archivedAt: null } },
     include: {
       user: {
         select: { id: true, name: true, email: true, role: true },
@@ -100,7 +100,9 @@ export async function POST(request, { params }) {
   try {
     const payload = addMemberSchema.parse(await request.json());
     const memberUser = await prisma.user.findFirst({
-      where: payload.userId ? { id: payload.userId } : { email: payload.email?.toLowerCase() },
+      where: payload.userId
+        ? { id: payload.userId, archivedAt: null }
+        : { email: payload.email?.toLowerCase(), archivedAt: null },
       select: { id: true, name: true, email: true, role: true },
     });
     if (!memberUser) {

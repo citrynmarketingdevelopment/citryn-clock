@@ -65,6 +65,7 @@ export async function GET(request, { params }) {
           orderBy: { order: "asc" },
         },
         members: {
+          where: { user: { archivedAt: null } },
           include: {
             user: {
               select: { id: true, name: true, email: true },
@@ -78,6 +79,7 @@ export async function GET(request, { params }) {
         tasks: {
           include: {
             assignments: {
+              where: { user: { archivedAt: null } },
               include: {
                 user: {
                   select: { id: true, name: true, email: true },

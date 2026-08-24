@@ -8,7 +8,7 @@ export async function ensureProjectAssigneeAccess(tx, projectId, userIds) {
 
   const [users, project, members] = await Promise.all([
     tx.user.findMany({
-      where: { id: { in: requestedIds } },
+      where: { id: { in: requestedIds }, archivedAt: null },
       select: { id: true },
     }),
     tx.project.findUnique({

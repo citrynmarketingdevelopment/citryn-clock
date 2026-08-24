@@ -17,7 +17,7 @@ export async function POST(request) {
       where: { email: payload.email.toLowerCase() },
     });
 
-    if (!user) {
+    if (!user || user.archivedAt) {
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
     }
 

@@ -73,6 +73,7 @@ export default function TimesheetsPage() {
 
   const [user, setUser] = useState(null);
   const [employees, setEmployees] = useState([]);
+  const [employeeFilter, setEmployeeFilter] = useState("active");
   const [range, setRange] = useState(defaultRange);
   const [loadedRange, setLoadedRange] = useState(defaultRange);
   const [hoursDrafts, setHoursDrafts] = useState({});
@@ -245,9 +246,20 @@ export default function TimesheetsPage() {
     router.refresh();
   }
 
-  const totalWorkedSecondsAllEmployees = useMemo(
-    () => employees.reduce((sum, employee) => sum + (employee.totals?.workedSeconds || 0), 0),
+  const activeEmployeeCount = useMemo(
+    () => employees.filter((employee) => !employee.user.archivedAt).length,
     [employees],
+  );
+  const archivedEmployeeCount = employees.length - activeEmployeeCount;
+  const filteredEmployees = useMemo(() => {
+    if (employeeFilter === "all") return employees;
+    return employees.filter((employee) =>
+      employeeFilter === "archived" ? Boolean(employee.user.archivedAt) : !employee.user.archivedAt,
+    );
+  }, [employeeFilter, employees]);
+  const totalWorkedSecondsVisibleEmployees = useMemo(
+    () => filteredEmployees.reduce((sum, employee) => sum + (employee.totals?.workedSeconds || 0), 0),
+    [filteredEmployees],
   );
 
   return (
@@ -281,7 +293,7 @@ export default function TimesheetsPage() {
             {loadingTimesheets ? "Loading..." : "Apply Range"}
           </button>
           <span className="chip" data-status="WORKING">
-            Total Hours: {secondsToClock(totalWorkedSecondsAllEmployees)}
+            Filtered Total: {secondsToClock(totalWorkedSecondsVisibleEmployees)}
           </span>
         </div>
       </section>
@@ -319,19 +331,58 @@ export default function TimesheetsPage() {
       </section>
 
       <section className="card">
-        <h2 style={{ marginBottom: 12 }}>Employee Timesheets</h2>
+        <div className="timesheet-section-head">
+          <h2>Employee Timesheets</h2>
+          <div className="status-segmented" role="group" aria-label="Filter employees by archive status">
+            <button
+              type="button"
+              className={employeeFilter === "all" ? "active" : ""}
+              aria-pressed={employeeFilter === "all"}
+              onClick={() => setEmployeeFilter("all")}
+            >
+              All <span>{employees.length}</span>
+            </button>
+            <button
+              type="button"
+              className={employeeFilter === "active" ? "active" : ""}
+              aria-pressed={employeeFilter === "active"}
+              onClick={() => setEmployeeFilter("active")}
+            >
+              Active <span>{activeEmployeeCount}</span>
+            </button>
+            <button
+              type="button"
+              className={employeeFilter === "archived" ? "active" : ""}
+              aria-pressed={employeeFilter === "archived"}
+              onClick={() => setEmployeeFilter("archived")}
+            >
+              Archived <span>{archivedEmployeeCount}</span>
+            </button>
+          </div>
+        </div>
         <p className="muted" style={{ marginBottom: 12 }}>
           Click an employee to expand their timesheet. Edit daily hours, then save.
         </p>
 
-        {employees.map((employee) => {
+        {loadingTimesheets ? <p className="muted">Loading timesheets...</p> : null}
+        {!loadingTimesheets && filteredEmployees.length === 0 ? (
+          <p className="muted">
+            {employeeFilter === "archived" ? "No archived employees." : "No employees match this filter."}
+          </p>
+        ) : null}
+
+        {!loadingTimesheets && filteredEmployees.map((employee) => {
           const totalWorked = employee.totals?.workedSeconds || 0;
           const status = totalWorked > 0 ? "WORKING" : "OUT";
           return (
             <details key={employee.user.id} className="employee-dropdown">
               <summary className="employee-summary">
                 <span>
-                  <strong>{employee.user.name}</strong> <span className="muted">({employee.user.email})</span>
+                  <span className="employee-summary-person">
+                    <strong>{employee.user.name}</strong>
+                    {employee.user.archivedAt ? <span className="employee-status-label">Archived</span> : null}
+                  </span>{" "}
+                  <span className="muted">({employee.user.email})</span>
                 </span>
                 <span className="chip" data-status={status}>
                   Range Total: {secondsToClock(totalWorked)}

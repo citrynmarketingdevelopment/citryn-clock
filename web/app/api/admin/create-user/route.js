@@ -26,11 +26,18 @@ export async function POST(request) {
     const payload = createUserSchema.parse(await request.json());
     const existing = await prisma.user.findUnique({
       where: { email: payload.email.toLowerCase() },
-      select: { id: true },
+      select: { id: true, archivedAt: true },
     });
 
     if (existing) {
-      return NextResponse.json({ error: "Email already exists." }, { status: 409 });
+      return NextResponse.json(
+        {
+          error: existing.archivedAt
+            ? "An archived user already uses this email. Restore that user from Members."
+            : "Email already exists.",
+        },
+        { status: 409 },
+      );
     }
 
     const passwordHash = await hashPassword(payload.password);
@@ -46,6 +53,7 @@ export async function POST(request) {
         name: true,
         email: true,
         role: true,
+        archivedAt: true,
         createdAt: true,
       },
     });
