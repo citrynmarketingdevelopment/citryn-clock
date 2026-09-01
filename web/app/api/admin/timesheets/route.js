@@ -83,6 +83,15 @@ function summarizeEmployeeDays(events, rangeStart, days, overridesMap) {
   return summaries;
 }
 
+function csvCell(value) {
+  const text = value == null ? "" : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function secondsToDecimalHours(seconds) {
+  return (Math.max(0, Number(seconds) || 0) / 3600).toFixed(4);
+}
+
 export async function GET(request) {
   let adminUser;
   try {
@@ -112,7 +121,15 @@ export async function GET(request) {
 
   const users = await prisma.user.findMany({
     where: { role: Role.EMPLOYEE },
-    select: { id: true, name: true, email: true, role: true, archivedAt: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      archivedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
     orderBy: { createdAt: "asc" },
   });
 
@@ -134,7 +151,18 @@ export async function GET(request) {
           lt: overrideEnd,
         },
       },
-      select: { userId: true, day: true, workedSeconds: true },
+      select: {
+        id: true,
+        userId: true,
+        day: true,
+        workedSeconds: true,
+        updatedByAdminId: true,
+        createdAt: true,
+        updatedAt: true,
+        updatedByAdmin: {
+          select: { id: true, name: true, email: true },
+        },
+      },
     }),
   ]);
 
@@ -175,6 +203,153 @@ export async function GET(request) {
 
   const rangeStartKey = formatDayKey(rangeStart);
   const rangeEndKey = formatDayKey(new Date(rangeEndExclusive.getTime() - 1));
+  const loadedAt = new Date().toISOString();
+  const exportFormat = request.nextUrl.searchParams.get("export");
+
+  if (exportFormat === "csv") {
+    const overridesByEmployeeDay = new Map(
+      overrides.map((override) => [`${override.userId}::${formatUtcDayKey(override.day)}`, override]),
+    );
+    const eventsByEmployeeDay = new Map();
+    for (const event of events) {
+      if (event.occurredAt < rangeStart || event.occurredAt >= rangeEndExclusive) continue;
+      const key = `${event.userId}::${formatDayKey(event.occurredAt)}`;
+      const current = eventsByEmployeeDay.get(key) ?? [];
+      current.push({
+        id: event.id,
+        type: event.type,
+        occurredAt: event.occurredAt.toISOString(),
+        createdAt: event.createdAt.toISOString(),
+      });
+      eventsByEmployeeDay.set(key, current);
+    }
+
+    const headers = [
+      "employee_id",
+      "employee_name",
+      "employee_email",
+      "employee_archived",
+      "date",
+      "status",
+      "first_clock_in",
+      "last_clock_out",
+      "worked_seconds",
+      "worked_hours",
+      "break_seconds",
+      "break_hours",
+      "has_manual_override",
+      "original_worked_seconds",
+      "original_worked_hours",
+      "employee_range_worked_seconds",
+      "employee_range_worked_hours",
+      "employee_range_break_seconds",
+      "employee_range_break_hours",
+      "sessions_json",
+      "clock_events_json",
+      "override_id",
+      "override_updated_at",
+      "override_updated_by_name",
+      "override_updated_by_email",
+    ];
+    const rows = [headers];
+
+    for (const employee of employeeTimesheets) {
+      for (const summary of [...employee.summaries].reverse()) {
+        const key = `${employee.user.id}::${summary.day}`;
+        const override = overridesByEmployeeDay.get(key);
+        rows.push([
+          employee.user.id,
+          employee.user.name,
+          employee.user.email,
+          Boolean(employee.user.archivedAt),
+          summary.day,
+          summary.status,
+          summary.firstClockIn,
+          summary.lastClockOut,
+          summary.workedSeconds,
+          secondsToDecimalHours(summary.workedSeconds),
+          summary.breakSeconds,
+          secondsToDecimalHours(summary.breakSeconds),
+          summary.hasOverride,
+          summary.originalWorkedSeconds,
+          secondsToDecimalHours(summary.originalWorkedSeconds),
+          employee.totals.workedSeconds,
+          secondsToDecimalHours(employee.totals.workedSeconds),
+          employee.totals.breakSeconds,
+          secondsToDecimalHours(employee.totals.breakSeconds),
+          JSON.stringify(summary.sessions ?? []),
+          JSON.stringify(eventsByEmployeeDay.get(key) ?? []),
+          override?.id,
+          override?.updatedAt?.toISOString(),
+          override?.updatedByAdmin?.name,
+          override?.updatedByAdmin?.email,
+        ]);
+      }
+    }
+
+    const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
+    return new NextResponse(csv, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="timesheets_${rangeStartKey}_to_${rangeEndKey}.csv"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  if (exportFormat === "json") {
+    const overridesByEmployee = new Map();
+    for (const override of overrides) {
+      const current = overridesByEmployee.get(override.userId) ?? [];
+      current.push({
+        ...override,
+        day: formatUtcDayKey(override.day),
+      });
+      overridesByEmployee.set(override.userId, current);
+    }
+
+    const exportEmployees = employeeTimesheets.map((employee) => ({
+      ...employee,
+      clockEvents: (eventsByUser.get(employee.user.id) ?? []).filter(
+        (event) => event.occurredAt >= rangeStart && event.occurredAt < rangeEndExclusive,
+      ),
+      overrides: overridesByEmployee.get(employee.user.id) ?? [],
+    }));
+    const totalWorkedSeconds = exportEmployees.reduce(
+      (sum, employee) => sum + employee.totals.workedSeconds,
+      0,
+    );
+    const totalBreakSeconds = exportEmployees.reduce(
+      (sum, employee) => sum + employee.totals.breakSeconds,
+      0,
+    );
+    const payload = {
+      export: {
+        schema: "citryn-clock.timesheets",
+        version: 1,
+        generatedAt: loadedAt,
+        generatedByAdminId: adminUser.id,
+        description:
+          "Complete timesheet export with calculated daily summaries, source clock events, and manual overrides.",
+        timeValues: "Durations are seconds; timestamps are ISO 8601; day values are YYYY-MM-DD.",
+      },
+      range: { start: rangeStartKey, end: rangeEndKey, days },
+      totals: {
+        employeeCount: exportEmployees.length,
+        workedSeconds: totalWorkedSeconds,
+        breakSeconds: totalBreakSeconds,
+      },
+      employees: exportEmployees,
+    };
+
+    return new NextResponse(JSON.stringify(payload, null, 2), {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="timesheets_${rangeStartKey}_to_${rangeEndKey}.json"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   return NextResponse.json({
     employeeTimesheets,
@@ -182,7 +357,7 @@ export async function GET(request) {
       start: rangeStartKey,
       end: rangeEndKey,
       days,
-      loadedAt: new Date().toISOString(),
+      loadedAt,
       adminId: adminUser.id,
     },
   });

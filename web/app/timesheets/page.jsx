@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Download } from "lucide-react";
 import WorkspaceShell from "@/components/workspace-shell";
+import { Button } from "@/components/ui/button";
 import { parseDayKey } from "@/lib/day";
 
 function secondsToClock(seconds) {
@@ -80,6 +82,7 @@ export default function TimesheetsPage() {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [loadingTimesheets, setLoadingTimesheets] = useState(false);
+  const [exporting, setExporting] = useState(null);
   const [savingOverrideKey, setSavingOverrideKey] = useState(null);
   const [form, setForm] = useState({
     name: "",
@@ -240,6 +243,49 @@ export default function TimesheetsPage() {
     await loadData(range);
   }
 
+  async function exportTimesheets(format) {
+    if (!range.start || !range.end) {
+      setError("Start and end date are required.");
+      return;
+    }
+    if (range.end < range.start) {
+      setError("End date must be on or after start date.");
+      return;
+    }
+
+    setError(null);
+    setExporting(format);
+    try {
+      const params = new URLSearchParams({
+        start: range.start,
+        end: range.end,
+        export: format,
+      });
+      const response = await fetch(`/api/admin/timesheets?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const data = await parseJsonSafe(response);
+        setError(data.error ?? "Unable to export timesheets.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `timesheets_${range.start}_to_${range.end}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch {
+      setError("Unable to export timesheets.");
+    } finally {
+      setExporting(null);
+    }
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
@@ -292,6 +338,24 @@ export default function TimesheetsPage() {
           <button type="button" onClick={applyRange} disabled={loadingTimesheets}>
             {loadingTimesheets ? "Loading..." : "Apply Range"}
           </button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => exportTimesheets("csv")}
+            disabled={Boolean(exporting) || loadingTimesheets}
+          >
+            <Download size={16} aria-hidden="true" />
+            {exporting === "csv" ? "Preparing CSV..." : "Export CSV"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => exportTimesheets("json")}
+            disabled={Boolean(exporting) || loadingTimesheets}
+          >
+            <Download size={16} aria-hidden="true" />
+            {exporting === "json" ? "Preparing JSON..." : "Export JSON"}
+          </Button>
           <span className="chip" data-status="WORKING">
             Filtered Total: {secondsToClock(totalWorkedSecondsVisibleEmployees)}
           </span>
