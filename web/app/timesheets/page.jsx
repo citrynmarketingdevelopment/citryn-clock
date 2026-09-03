@@ -274,7 +274,7 @@ export default function TimesheetsPage() {
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
-      link.download = `timesheets_${range.start}_to_${range.end}.${format}`;
+      link.download = `quickbooks_timesheets_${range.start}_to_${range.end}.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -345,16 +345,7 @@ export default function TimesheetsPage() {
             disabled={Boolean(exporting) || loadingTimesheets}
           >
             <Download size={16} aria-hidden="true" />
-            {exporting === "csv" ? "Preparing CSV..." : "Export CSV"}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => exportTimesheets("json")}
-            disabled={Boolean(exporting) || loadingTimesheets}
-          >
-            <Download size={16} aria-hidden="true" />
-            {exporting === "json" ? "Preparing JSON..." : "Export JSON"}
+            {exporting === "csv" ? "Preparing QuickBooks CSV..." : "Export QuickBooks CSV"}
           </Button>
           <span className="chip" data-status="WORKING">
             Filtered Total: {secondsToClock(totalWorkedSecondsVisibleEmployees)}

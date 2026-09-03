@@ -88,8 +88,16 @@ function csvCell(value) {
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-function secondsToDecimalHours(seconds) {
-  return (Math.max(0, Number(seconds) || 0) / 3600).toFixed(4);
+function formatQuickBooksDate(day) {
+  const [year, month, date] = day.split("-");
+  return `${month}/${date}/${year}`;
+}
+
+function formatQuickBooksDuration(seconds) {
+  const totalMinutes = Math.round(Math.max(0, Number(seconds) || 0) / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = String(totalMinutes % 60).padStart(2, "0");
+  return `${hours}:${minutes}`;
 }
 
 export async function GET(request) {
@@ -207,82 +215,22 @@ export async function GET(request) {
   const exportFormat = request.nextUrl.searchParams.get("export");
 
   if (exportFormat === "csv") {
-    const overridesByEmployeeDay = new Map(
-      overrides.map((override) => [`${override.userId}::${formatUtcDayKey(override.day)}`, override]),
-    );
-    const eventsByEmployeeDay = new Map();
-    for (const event of events) {
-      if (event.occurredAt < rangeStart || event.occurredAt >= rangeEndExclusive) continue;
-      const key = `${event.userId}::${formatDayKey(event.occurredAt)}`;
-      const current = eventsByEmployeeDay.get(key) ?? [];
-      current.push({
-        id: event.id,
-        type: event.type,
-        occurredAt: event.occurredAt.toISOString(),
-        createdAt: event.createdAt.toISOString(),
-      });
-      eventsByEmployeeDay.set(key, current);
-    }
-
-    const headers = [
-      "employee_id",
-      "employee_name",
-      "employee_email",
-      "employee_archived",
-      "date",
-      "status",
-      "first_clock_in",
-      "last_clock_out",
-      "worked_seconds",
-      "worked_hours",
-      "break_seconds",
-      "break_hours",
-      "has_manual_override",
-      "original_worked_seconds",
-      "original_worked_hours",
-      "employee_range_worked_seconds",
-      "employee_range_worked_hours",
-      "employee_range_break_seconds",
-      "employee_range_break_hours",
-      "sessions_json",
-      "clock_events_json",
-      "override_id",
-      "override_updated_at",
-      "override_updated_by_name",
-      "override_updated_by_email",
-    ];
+    // QuickBooks Online time activity spreadsheet layout. Customer and Service
+    // remain blank because Citryn Clock does not collect job-costing data.
+    const headers = ["Date", "Name", "Customer", "Service", "Duration", "Description", "Billable"];
     const rows = [headers];
 
     for (const employee of employeeTimesheets) {
       for (const summary of [...employee.summaries].reverse()) {
-        const key = `${employee.user.id}::${summary.day}`;
-        const override = overridesByEmployeeDay.get(key);
+        if (summary.workedSeconds <= 0) continue;
         rows.push([
-          employee.user.id,
+          formatQuickBooksDate(summary.day),
           employee.user.name,
-          employee.user.email,
-          Boolean(employee.user.archivedAt),
-          summary.day,
-          summary.status,
-          summary.firstClockIn,
-          summary.lastClockOut,
-          summary.workedSeconds,
-          secondsToDecimalHours(summary.workedSeconds),
-          summary.breakSeconds,
-          secondsToDecimalHours(summary.breakSeconds),
-          summary.hasOverride,
-          summary.originalWorkedSeconds,
-          secondsToDecimalHours(summary.originalWorkedSeconds),
-          employee.totals.workedSeconds,
-          secondsToDecimalHours(employee.totals.workedSeconds),
-          employee.totals.breakSeconds,
-          secondsToDecimalHours(employee.totals.breakSeconds),
-          JSON.stringify(summary.sessions ?? []),
-          JSON.stringify(eventsByEmployeeDay.get(key) ?? []),
-          override?.id,
-          override?.updatedAt?.toISOString(),
-          override?.updatedByAdmin?.name,
-          override?.updatedByAdmin?.email,
+          "",
+          "",
+          formatQuickBooksDuration(summary.workedSeconds),
+          summary.hasOverride ? "Citryn Clock (manually adjusted)" : "Citryn Clock",
+          "No",
         ]);
       }
     }
@@ -291,61 +239,7 @@ export async function GET(request) {
     return new NextResponse(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="timesheets_${rangeStartKey}_to_${rangeEndKey}.csv"`,
-        "Cache-Control": "no-store",
-      },
-    });
-  }
-
-  if (exportFormat === "json") {
-    const overridesByEmployee = new Map();
-    for (const override of overrides) {
-      const current = overridesByEmployee.get(override.userId) ?? [];
-      current.push({
-        ...override,
-        day: formatUtcDayKey(override.day),
-      });
-      overridesByEmployee.set(override.userId, current);
-    }
-
-    const exportEmployees = employeeTimesheets.map((employee) => ({
-      ...employee,
-      clockEvents: (eventsByUser.get(employee.user.id) ?? []).filter(
-        (event) => event.occurredAt >= rangeStart && event.occurredAt < rangeEndExclusive,
-      ),
-      overrides: overridesByEmployee.get(employee.user.id) ?? [],
-    }));
-    const totalWorkedSeconds = exportEmployees.reduce(
-      (sum, employee) => sum + employee.totals.workedSeconds,
-      0,
-    );
-    const totalBreakSeconds = exportEmployees.reduce(
-      (sum, employee) => sum + employee.totals.breakSeconds,
-      0,
-    );
-    const payload = {
-      export: {
-        schema: "citryn-clock.timesheets",
-        version: 1,
-        generatedAt: loadedAt,
-        generatedByAdminId: adminUser.id,
-        description:
-          "Complete timesheet export with calculated daily summaries, source clock events, and manual overrides.",
-        timeValues: "Durations are seconds; timestamps are ISO 8601; day values are YYYY-MM-DD.",
-      },
-      range: { start: rangeStartKey, end: rangeEndKey, days },
-      totals: {
-        employeeCount: exportEmployees.length,
-        workedSeconds: totalWorkedSeconds,
-        breakSeconds: totalBreakSeconds,
-      },
-      employees: exportEmployees,
-    };
-
-    return new NextResponse(JSON.stringify(payload, null, 2), {
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="timesheets_${rangeStartKey}_to_${rangeEndKey}.json"`,
+        "Content-Disposition": `attachment; filename="quickbooks_timesheets_${rangeStartKey}_to_${rangeEndKey}.csv"`,
         "Cache-Control": "no-store",
       },
     });
